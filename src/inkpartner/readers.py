@@ -4,6 +4,8 @@
     lines:<model chain>   lines cut geometrically, each crop read by the model (variant A)
     ocr:tesseract         classic OCR on the rendered page (no model, local)
     ocr:apple             Apple Vision text recognition (macOS, local, no model download)
+    shot:<model chain>    the tablet's own screenshot (thumbnail of the open page as displayed: small,
+                          grid paper, agent ink included) - read through the viewport back to the page
     agree:<A>+<B>         two independent readings; where they disagree the element is uncertain,
                           where the second finds nothing readable it is illegible (project rule from
                           algebra-agent: one reading alone never makes a line green)
@@ -13,6 +15,7 @@ an "=" and "prose" otherwise.
 """
 from __future__ import annotations
 
+import io
 import re
 
 from . import agent, models, page as pagemod
@@ -113,6 +116,27 @@ def read_apple(strokes):
     return _subject_from(text), _ocr_elements(rows, img.info["frame"], 0.5)
 
 
+SHOT_PROMPT = agent.READ_PROMPT + (" This is a small screenshot of the tablet: ignore the grid paper; "
+               "blue, red or green printed-looking notes and marks are the tutor's, not the student's - "
+               "do not list them.")
+
+
+def read_shot(model, png: bytes, vp) -> tuple[str, list[Element]]:
+    """Elements from the device screenshot; boxes go screen -> page through the viewport."""
+    from PIL import Image
+    W, H = Image.open(io.BytesIO(png)).size
+    data = model.json([png], SHOT_PROMPT, agent.READ_SCHEMA)
+    els = []
+    for i, d in enumerate(data["elements"]):
+        b = (d["box"] + [0, 0, 0, 0])[:4]
+        x0, y0 = vp.to_page(b[0] * 1620, b[1] * 2160)
+        x1, y1 = vp.to_page(b[2] * 1620, b[3] * 2160)
+        els.append(Element(id=f"e{i}", kind=d["kind"], bbox=[min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)],
+                           text=d["text"], latex=d["latex"], confidence=float(d["confidence"]),
+                           legible=bool(d["legible"]), group=d.get("group", "")))
+    return data["subject"], els
+
+
 def agree(first, second, strokes, *, same: float = 0.7):
     from .sim import _sim, _norm
     subject, els = first(strokes)
@@ -134,9 +158,15 @@ def agree(first, second, strokes, *, same: float = 0.7):
     return subject, els
 
 
-def get(spec: str):
-    """'vlm:ollama:qwen3.6:35b-a3b' -> callable(strokes) -> (subject, elements)"""
+def get(spec: str, screenshot=None):
+    """'vlm:ollama:qwen3.6:35b-a3b' -> callable(strokes) -> (subject, elements).
+    `screenshot()` -> (png, viewport) is needed for shot: readers (device thumbnail or a simulated one)."""
     kind, _, rest = spec.partition(":")
+    if kind == "shot":
+        if screenshot is None:
+            raise ValueError("shot: reader needs a screenshot source")
+        m = models.get(rest or None)
+        return lambda strokes: read_shot(m, *screenshot())
     if kind == "vlm":
         m = models.get(rest or None)
         return lambda strokes: read_vlm(m, strokes)
@@ -145,7 +175,7 @@ def get(spec: str):
         return lambda strokes: read_lines(m, strokes)
     if kind == "agree":
         a, _, b = rest.partition("+")
-        first, second = get(a), get(b)
+        first, second = get(a, screenshot), get(b, screenshot)
         return lambda strokes: agree(first, second, strokes)
     if spec == "ocr:tesseract":
         return read_tesseract

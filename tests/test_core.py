@@ -678,7 +678,7 @@ class Simulation(unittest.TestCase):
         sc = sim.Scenario("t", "math", [sim.Line("3(x+2)=15", "ok"), sim.Line("3x+2=15", "wrong")])
         try:
             models.get = lambda spec=None: Judge()
-            readers.get = lambda spec: reader
+            readers.get = lambda spec, screenshot=None: reader
             return sim.run_scenario(sc, "vlm:fake", "fake", tempfile.mkdtemp(), log=lambda *a: None)
         finally:
             models.get, readers.get = orig_m, orig_r
@@ -763,3 +763,28 @@ class ViewportTest(unittest.TestCase):
         self.assertLess(abs(v.ox - true.ox), 40)
         self.assertLess(abs(v.oy - true.oy), 40)
         self.assertGreater(v.score, 0.6)
+
+
+class ShotReader(unittest.TestCase):
+    def test_boxes_come_back_through_the_viewport(self):
+        from inkpartner import readers, viewport
+
+        class M:
+            def json(self, images, prompt, schema):
+                assert "screenshot" in prompt
+                return {"subject": "math", "elements": [{"kind": "formula", "text": "2x=8", "latex": "",
+                        "box": [0.1, 0.1, 0.5, 0.2], "confidence": 0.9, "legible": True, "group": "1"}]}
+        from PIL import Image
+        png = page.png_bytes(Image.new("RGB", (384, 512), "white"))
+        vp = viewport.Viewport(2.0, -100.0, -50.0, 1.0)            # zoomed in x2, scrolled
+        _, els = readers.read_shot(M(), png, vp)
+        self.assertEqual([round(v) for v in els[0].bbox], [131, 133, 455, 241])
+
+    def test_sim_screenshot_looks_like_the_device(self):
+        from inkpartner import sim
+        tab = sim.SimTablet(tempfile.mkdtemp())
+        png, vp = tab.screenshot()
+        from PIL import Image
+        import io
+        self.assertEqual(Image.open(io.BytesIO(png)).size, (384, 512))
+        self.assertEqual(vp.scale, 1.0)

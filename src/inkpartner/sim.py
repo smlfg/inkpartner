@@ -153,6 +153,25 @@ class SimTablet:
     def strokes(self):
         return pagemod.read_strokes(self.path)
 
+    def screenshot(self):
+        """Like the device thumbnail: 384x512, grid paper, every layer (agent notes included), the
+        view unzoomed at the top of the page (viewport measured on the device 2026-10-23: scale 1)."""
+        from PIL import Image, ImageDraw
+        from .viewport import Viewport
+        img = Image.new("RGB", (384, 512), (250, 250, 248))
+        d = ImageDraw.Draw(img)
+        for x in range(0, 384, 12):
+            d.line([(x, 0), (x, 512)], fill=(214, 214, 214))
+        for y in range(0, 512, 12):
+            d.line([(0, y), (384, y)], fill=(214, 214, 214))
+        k = 384 / 1620
+        for s in self.strokes():
+            col = pagemod.RGB.get(s.get("color"), (20, 20, 20))
+            pts = [(p[0] * k, p[1] * k) for p in s["points"]]
+            if len(pts) > 1:
+                d.line(pts, fill=col, width=1 if s["author"] == "agent" else 2)
+        return pagemod.png_bytes(img), Viewport(1.0, 0.0, 0.0, 1.0)
+
 
 class SimPen:
     """A perfect pen: the agent's marks land exactly where planned (transport is tested elsewhere)."""
@@ -261,7 +280,7 @@ def run_scenario(sc: Scenario, reader_spec: str, judge_spec: str, out_dir: str, 
     rng = random.Random(seed)
     work = tempfile.mkdtemp(prefix="inkp-sim-")
     tab = SimTablet(work)
-    reader = readers.get(reader_spec)
+    reader = readers.get(reader_spec, screenshot=tab.screenshot)
     judge = models.get(judge_spec)
     w = Watcher(tab, judge, subject=sc.subject, pen=SimPen(tab), log=lambda *a: None, reader=reader,
                 judge_model=judge, state_file=os.path.join(work, "state.json"))

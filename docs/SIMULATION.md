@@ -41,7 +41,7 @@ Ein Lauf ist `LESEWEG@BEWERTUNG`.
 
 | Leseweg | Was das Modell sieht |
 |---|---|
-| `vlm:<modell>` | die ganze Seite als ein Bild |
+| `vlm:<modell>` | die ganze Seite als ein Bild (auch `vlm:minimax:MiniMax-M3.1-Flash`, Cloud) |
 | `lines:<modell>` | geometrisch ausgeschnittene Zeilen |
 | `ocr:tesseract`, `ocr:apple` | klassische Texterkennung, kein Modell |
 | `agree:<A>+<B>` | zwei Lesungen, die übereinstimmen müssen |

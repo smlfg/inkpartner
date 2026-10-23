@@ -91,15 +91,15 @@ def draw(actions: list[Action], elements: list[Element], strokes_on_page: list[d
     for a in actions:
         el = by_id[a.element]
         if a.mark == "note":
-            size = marks.text_size(a.text)
+            # as tall as the student's own letters, within reason (real page: ~100 px letters)
+            h = max(34.0, min(80.0, 0.6 * (el.bbox[3] - el.bbox[1])))
+            size = marks.text_size(a.text, h)
             spot = layout.place(size, el.bbox, occ)
-            ink = marks.text(a.text, (spot["rect"][0], spot["rect"][1]), color=a.color)
+            ink = marks.text(a.text, (spot["rect"][0], spot["rect"][1]), height=h, color=a.color)
             if not spot["adjacent"]:
                 r = spot["rect"]
                 ink += marks.arrow((r[0], (r[1] + r[3]) / 2), (el.bbox[2] + 6, (el.bbox[1] + el.bbox[3]) / 2),
                                    color=a.color)
-            if a.verdict == "wrong":
-                ink += marks.underline(el.bbox, color="red")
         else:
             ink = getattr(marks, a.mark)(el.bbox, color=a.color)
         for s in ink:

@@ -55,6 +55,22 @@ Hinweis = blau, unlesbar = grau. Damit gilt die Farbsemantik aus Notion immer.
 
 Die vollständige Liste mit Herkunft steht in [docs/INTERAKTIONSREGELN.md](docs/INTERAKTIONSREGELN.md).
 
+## Harte Grenzen beim Schreiben (guards.py)
+
+Diese Prüfungen stecken in den Schreibbefehlen selbst. Kein Aufrufer kommt an ihnen vorbei.
+
+| Regel | Was sie verhindert | Woher |
+|---|---|---|
+| R-RESTART | Neustart (meldet dich ab) nur ausdrücklich erlaubt, nach 30 min ohne Änderung auf irgendeiner Seite und ohne Stiftaktivität, höchstens 1× pro Stunde | 23.10.: nach 4 min Lesen rausgeworfen |
+| R-PEN-NEAR | keine Stiftsignale, solange dein Stift in Reichweite ist | 23.10.: Striche zu einer Linie verschmolzen |
+| R-OPEN | Stiftsignale nur in die Seite, die gerade offen ist (aus dem Log der Notiz-App) | sonst Tipper in Menüs oder auf fremden Seiten |
+| R-VIEWPORT | Stiftsignale nur bei bekannter, ungezoomter Ansicht (`--trust-viewport`, bis Zoom erkannt wird) | 23.10.: Notiz als großes Gebilde über deiner Rechnung |
+| R-FOREIGN | unerwartete Striche in deiner Ebene nach dem Schreiben → **Not-Aus** (Datei `~/.cache/inkpartner/STOP`) | dasselbe |
+| R-PREFIX | eine Seitendatei darf nur wachsen, deine Bytes bleiben unverändert | Produktvertrag |
+| R-RATE | höchstens 4 Stift-Auslieferungen pro Minute | gegen Schleifen |
+
+Nach einem Not-Aus schreibt nichts mehr, bis du die STOP-Datei nach einem Blick aufs Tablet löschst.
+
 ## Fächer (profiles.py)
 
 `math` (mit sympy) · `code` (Code auf Papier) · `diagram` (Graphen, Automaten, neuronale Netze,

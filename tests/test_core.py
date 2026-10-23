@@ -449,6 +449,7 @@ class Escalation(WatcherTest):
         self.w.pen = DeadPen()
         self.w.allow_restart = True
         self.w.restart_quiet_s = 60
+        self.w.restart_gap_s = 0
         self.w.tick()
         self.tab.clock = 1100
         self.tab.write("new/p.rm", self.fix)
@@ -493,3 +494,25 @@ class Escalation(WatcherTest):
                            review.run(st, subject="math", elements=[el("q", "x=?", 100)],
                                       proposals=[(plan.Action("q", "help", "note", text="Hinweis"), "")]), 1000)
         self.assertGreater(self.w.pen_rest_until, 1000)
+
+
+class RestartIsLastResort(WatcherTest):
+    def test_defaults_never_restart(self):
+        from inkpartner import watch
+        w = watch.Watcher(self.tab, None, pen=False, log=lambda *a: None,
+                          state_file=os.path.join(tempfile.mkdtemp(), "s.json"))
+        self.assertFalse(w.allow_restart)
+        self.assertGreaterEqual(w.restart_quiet_s, 1800)
+
+    def test_at_most_one_restart_per_gap(self):
+        self.w.allow_restart, self.w.restart_quiet_s, self.w.restart_gap_s = True, 0, 3600
+        self.w.last_restart = 1000
+        self.tab.write("new/p.rm", self.fix)
+        st = self.watch.PageState(self.tab.scan()["new/p.rm"], 0)
+        self.w.pages = {"new/p.rm": st}
+        st.pending = {"strokes": marks.check([100, 100, 200, 150]), "base_sha": self.watch.sha(self.fix),
+                      "speech": ""}
+        for s_ in st.pending["strokes"]:
+            s_["action"] = "k"
+        self.w.retry_pending("new/p.rm", st, 2000)        # 1000 s after the last restart: no
+        self.assertEqual(self.tab.restarts, 0)

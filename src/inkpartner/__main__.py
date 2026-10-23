@@ -38,8 +38,9 @@ def main(argv=None) -> int:
     w.add_argument("--interval", type=float, default=3.0)
     w.add_argument("--settle", type=float, default=4.0, help="seconds without a new stroke before a review")
     w.add_argument("--allow-restart", action="store_true",
-                   help="allow the file path (colour, own layer) when the page has been quiet for --restart-quiet")
-    w.add_argument("--restart-quiet", type=float, default=120.0)
+                   help="LAST RESORT: allow the file path; it restarts the notes app and logs the student out")
+    w.add_argument("--restart-quiet", type=float, default=1800.0,
+                   help="seconds without a change on any page before a restart may happen")
     w.add_argument("--no-pen", action="store_true", help="do not use the V-Pen path")
     w.add_argument("--once", action="store_true", help="stop after the first review")
     a = ap.parse_args(argv)

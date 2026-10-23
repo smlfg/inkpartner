@@ -15,9 +15,11 @@ How to write back:
 - pen  (V-Pen, algebra-agent/inject.py): pen events into the open page. No restart, never throws the
   student out. Price: the ink takes the colour of the pen currently selected and lands in the
   student's layer. Needs the viewport calibration (~/.config/penecho/live_viewport.json).
-- file (append an agent layer + restart the notes app): colour and own layer, but a restart. Only
-  allowed when the page has been quiet for `restart_quiet_s` AND the page is unchanged right before
-  the restart. Never while the student writes - that is the must-have.
+- file (append an agent layer + restart the notes app): colour and own layer, but a restart - and a
+  restart LOGS THE STUDENT OUT (seen 2026-10-23: back to the passcode screen). Last resort only:
+  off unless --allow-restart, then only after `restart_quiet_s` (default 30 min) without any change
+  on ANY page, at most once per `restart_gap_s` (default 1 h). A quiet page is not an idle student -
+  on 2026-10-23 the student sat reading the page for 4 minutes and was thrown out.
 """
 from __future__ import annotations
 
@@ -121,9 +123,9 @@ class PageState:
 
 
 class Watcher:
-    def __init__(self, tablet: Tablet, model, *, subject=None, settle_s=4.0, restart_quiet_s=120.0,
+    def __init__(self, tablet: Tablet, model, *, subject=None, settle_s=4.0, restart_quiet_s=1800.0,
                  allow_restart=False, recent_s=600.0, pen=True, log=print, state_file=None,
-                 speak=None, speech_allowed=False, pen_rest_s=900.0):
+                 speak=None, speech_allowed=False, pen_rest_s=900.0, restart_gap_s=3600.0):
         self.tablet, self.model, self.subject = tablet, model, subject
         self.settle_s, self.restart_quiet_s, self.allow_restart = settle_s, restart_quiet_s, allow_restart
         self.recent_s = recent_s
@@ -140,6 +142,7 @@ class Watcher:
         self.verify_tries, self.verify_wait_s = 5, 2.0
         self.speak, self.speech_allowed = speak, speech_allowed
         self.pen_failures, self.pen_rest_until, self.pen_rest_s = 0, 0.0, pen_rest_s
+        self.restart_gap_s, self.last_restart = restart_gap_s, -1e18
         self.state_file = Path(state_file or Path.home() / ".cache/inkpartner/state.json")
         self._load()
 
@@ -269,8 +272,11 @@ class Watcher:
             st.pending = None
             st.reviewed_sha = ""                          # look at the page again
             return
-        quiet = now - st.last_change
-        if self.allow_restart and quiet >= self.restart_quiet_s:
+        # idle = no change on ANY page; a page the student only reads is quiet but not idle
+        quiet = now - max(x.last_change for x in self.pages.values())
+        if (self.allow_restart and quiet >= self.restart_quiet_s
+                and now - self.last_restart >= self.restart_gap_s):
+            self.last_restart = now
             with tempfile.TemporaryDirectory() as tmp:
                 src, out = os.path.join(tmp, "in.rm"), os.path.join(tmp, "out.rm")
                 Path(src).write_bytes(current)

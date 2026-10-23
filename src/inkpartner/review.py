@@ -26,7 +26,9 @@ def run(strokes: list[dict], *, model=None, subject: str | None = None, elements
     `reader` (readers.get) replaces the default reading; `judge_model` judges instead of `model`."""
     from . import agent
     if elements is None:
+        from .geometry import snap
         guessed, elements = reader(strokes) if reader else agent.read(model, strokes)
+        elements = snap(elements, strokes)           # marks land on the real ink, not the model's guess
         subject = subject or guessed
     subject = subject or "math"
     profile = profiles.get(subject)

@@ -788,3 +788,18 @@ class ShotReader(unittest.TestCase):
         import io
         self.assertEqual(Image.open(io.BytesIO(png)).size, (384, 512))
         self.assertEqual(vp.scale, 1.0)
+
+
+class Snap(unittest.TestCase):
+    def test_box_snaps_to_the_ink_it_roughly_points_at(self):
+        import random
+        from inkpartner import sim, geometry
+        rng = random.Random(2)
+        a = sim.handwrite("3(x+2)=15", (200, 200), 80, rng)
+        b = sim.handwrite("3x+2=15", (200, 400), 80, rng)
+        true_b = marks.bbox_of(b)
+        els = [Element("e0", "formula", [150, 150, 700, 330], "3(x+2)=15", confidence=.9),
+               Element("e1", "formula", [260, 360, 1100, 450], "3x+2=15", confidence=.9)]   # sloppy model box
+        geometry.snap(els, a + b)
+        self.assertEqual([round(v) for v in els[1].bbox], [round(v) for v in true_b])
+        self.assertEqual([round(v) for v in els[0].bbox], [round(v) for v in marks.bbox_of(a)])

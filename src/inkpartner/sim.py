@@ -73,6 +73,12 @@ SCENARIOS = [
     Scenario("quadratische-ergaenzung", "math", [Line("x^2+6x=7", "ok"), Line("(x+3)^2=16", "ok"),
                                                  Line("x+3=5", "wrong")]),
     Scenario("gekritzel", "math", [Line("2x=8", "ok"), Line("~", "unreadable")]),
+    Scenario("bruch-fehler", "math", [Line("1/2+1/3", "ok"), Line("2/5", "wrong")]),
+    Scenario("vorzeichen-fehler", "math", [Line("5-2(x-3)=1", "ok"), Line("5-2x-6=1", "wrong")]),
+    Scenario("hilfe-in-worten", "math", [Line("x^2-5x+6=0", "ok"), Line("wie geht das?", "help")]),
+    Scenario("potenzregel-richtig", "math", [Line("(a*b)^3", "ok"), Line("a^3*b^3", "ok")]),
+    Scenario("mehrschritt-richtig", "math", [Line("3(x-1)=2x+5", "ok"), Line("3x-3=2x+5", "ok"),
+                                             Line("x=8", "ok")]),
 ]
 
 

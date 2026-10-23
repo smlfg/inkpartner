@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 from . import page as pagemod
@@ -51,10 +52,15 @@ def main(argv=None) -> int:
     sm.add_argument("--scenario", action="append", help="only these scenarios (default: all)")
     sm.add_argument("--out", default="sim-out")
     sm.add_argument("--real", help="JSON with real pages and their truth (replayed line by line)")
+    sm.add_argument("--rescore", help="score a saved REPORT.json again instead of running")
     a = ap.parse_args(argv)
 
     if a.cmd == "sim":
         from . import sim
+        if a.rescore:
+            runs = sim.rescore(a.rescore, a.real)
+            print(json.dumps(sim.report(runs, os.path.join(a.out, "REPORT.md")), indent=1))
+            return 0
         summary = sim.main(a.configs, a.scenario, a.out, log=lambda *x: print(*x, flush=True), real=a.real)
         print(json.dumps(summary, indent=1))
         return 0

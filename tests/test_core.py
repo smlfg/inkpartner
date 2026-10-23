@@ -699,3 +699,20 @@ class Simulation(unittest.TestCase):
         ys = [min(p[1] for p in s["points"]) for s in ink]
         self.assertLess(min(ys), 100)                    # the exponent sits above the line
         self.assertTrue(all(s["author"] == "user" for s in ink))
+
+
+class SimScoring(unittest.TestCase):
+    def test_marks_count_for_the_line_they_were_read_as_even_with_a_bad_box(self):
+        from inkpartner import sim
+        lines = [sim.Line("(3x+4y)^3 = ?", "help"), sim.Line("x+3=5", "wrong")]
+        rounds = [{"read": ["(3x+4y)^3 = ?", "x + 3 = 5"], "boxes": [[0, 900, 10, 910], [0, 0, 10, 10]],
+                   "marks": [["help", 0], ["wrong", 1]]}]
+        out = sim.score_lines(lines, [[100, 100, 900, 200], [100, 300, 600, 400]], rounds)
+        self.assertEqual([o.outcome for o in out], ["hit", "hit"])
+        self.assertEqual([o.box_iou for o in out], [0.0, 0.0])      # the boxes miss: marks would land elsewhere
+
+    def test_unasked_help_on_a_correct_line_is_noise(self):
+        from inkpartner import sim
+        out = sim.score_lines([sim.Line("2x+4=10", "ok")], [[0, 0, 1, 1]],
+                              [{"read": ["2x+4=10"], "boxes": [], "marks": [["help", 0]]}])
+        self.assertEqual(out[0].outcome, "noise")

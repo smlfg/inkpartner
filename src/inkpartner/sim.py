@@ -185,35 +185,64 @@ class LineResult:
     read_as: str
     read_score: float
     verdicts: list[str]
-    outcome: str           # hit | miss | ok | critical | partial
+    outcome: str           # hit | miss | ok | critical | partial | noise
+    box_iou: float | None = None   # how well the element box (where marks land) covers the true line
 
 
-def score_line(line: Line, box, elements, rounds) -> LineResult:
-    """`elements`: the last reading; `rounds`: [(elements, accepted actions)] of every review round -
-    element ids are per round, so marks are mapped to lines through that round's boxes."""
-    best, best_el = 0.0, None
-    for e in elements:
-        r = difflib.SequenceMatcher(None, _norm(line.text), _norm(e.text)).ratio()
-        if _overlap(box, e.bbox) > 0 or _overlap(e.bbox, box) > 0:
-            r += 0.001                                 # prefer the element at the right place
-        if r > best:
-            best, best_el = r, e
-    found = set()
-    for els, acts in rounds:
-        ids = {e.id for e in els if _overlap(box, e.bbox) > 0.15 or _overlap(e.bbox, box) > 0.15}
-        found |= {a.verdict for a in acts if a.element in ids}
-    verdicts = sorted(found)
-    v = set(verdicts)
-    if line.expect == "wrong":
-        outcome = "critical" if "correct" in v else "hit" if "wrong" in v else "partial" if v & {"hint", "help"} else "miss"
-    elif line.expect == "ok":
-        outcome = "critical" if "wrong" in v else "noise" if v & {"help", "hint"} else "ok"
-    elif line.expect == "help":
-        outcome = "hit" if "help" in v else "partial" if "hint" in v else "miss"
-    else:
-        outcome = "critical" if "correct" in v else "hit" if "unreadable" in v else "miss"
-    return LineResult(line.text, line.expect, best_el.text if best_el else "", round(min(best, 1.0), 2),
-                      verdicts, outcome)
+def _sim(a: str, b: str) -> float:
+    return difflib.SequenceMatcher(None, _norm(a), _norm(b)).ratio()
+
+
+def _iou(a, b) -> float:
+    ix = max(0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / union if union > 0 else 0.0
+
+
+def assign(texts: list[str], truth: list[str]) -> dict[int, int]:
+    """element index -> truth line index, by reading (a mark belongs to the line it was read as);
+    an element that matches no truth line well enough (< 0.5) belongs to none."""
+    out = {}
+    for i, t in enumerate(texts):
+        scores = [_sim(t, tr) for tr in truth]
+        if scores and max(scores) >= 0.5:
+            out[i] = scores.index(max(scores))
+    return out
+
+
+def score_lines(lines: list[Line], boxes: list, rounds: list[dict]) -> list[LineResult]:
+    """`rounds`: what the agent read and marked each round ({'read': [...], 'boxes': [...], 'marks':
+    [(verdict, element index)]}). Marks are mapped to lines through the text they were read as."""
+    truth = [l.text for l in lines]
+    found = [set() for _ in lines]
+    last = rounds[-1] if rounds else {"read": [], "boxes": []}
+    for rd in rounds:
+        idx = assign(rd["read"], truth)
+        for verdict, ei in rd["marks"]:
+            if ei in idx:
+                found[idx[ei]].add(verdict)
+    out = []
+    last_idx = assign(last["read"], truth)
+    for li, (line, box) in enumerate(zip(lines, boxes)):
+        els = [ei for ei, l in last_idx.items() if l == li]
+        read_as = last["read"][els[0]] if els else ""
+        iou = _iou(box, last["boxes"][els[0]]) if els and last.get("boxes") else None
+        v = found[li]
+        if line.expect == "wrong":
+            outcome = "critical" if "correct" in v else "hit" if "wrong" in v else "partial" if v & {"hint", "help"} else "miss"
+        elif line.expect == "ok":
+            outcome = "critical" if "wrong" in v else "noise" if v & {"help", "hint"} else "ok"
+        elif line.expect == "help":
+            outcome = "hit" if "help" in v else "partial" if "hint" in v else "miss"
+        else:
+            outcome = "critical" if "correct" in v else "hit" if "unreadable" in v else "miss"
+        r = LineResult(line.text, line.expect, read_as, round(_sim(line.text, read_as), 2) if read_as else 0.0,
+                       sorted(v), outcome)
+        r.box_iou = None if iou is None else round(iou, 2)
+        out.append(r)
+    return out
 
 
 # --------------------------------------------------------------------- loop
@@ -240,7 +269,7 @@ def run_scenario(sc: Scenario, reader_spec: str, judge_spec: str, out_dir: str, 
     run = Run(f"{reader_spec} | judge {judge_spec}", sc.name)
     w.tick()                                           # the empty page is old news
     y = 220.0
-    boxes, judged = [], []
+    boxes = []
     real = real_line_ink(sc) if sc.source else None
     for i, line in enumerate(sc.lines):
         height = rng.uniform(70, 95)
@@ -265,9 +294,12 @@ def run_scenario(sc: Scenario, reader_spec: str, judge_spec: str, out_dir: str, 
             r = None
         dt = round(time.time() - t0, 1)
         if r is not None:
-            judged.append((r.elements, r.accepted))
+            ids = [e.id for e in r.elements]
             run.rounds.append({"after_line": i, "seconds": dt, "subject": r.subject,
                                "read": [e.text for e in r.elements],
+                               "boxes": [[round(v) for v in e.bbox] for e in r.elements],
+                               "verdicts": [[a.verdict, ids.index(a.element)] for a in r.accepted
+                                            if a.element in ids],
                                "marks": [f"{a.verdict}/{a.mark} {a.element} {a.text}".strip() for a in r.accepted],
                                "rejected": [f"{a.verdict}/{a.mark} {a.element}: {why}" for a, why in r.rejected]})
             log(f"    after line {i + 1} ({dt}s): read {[e.text for e in r.elements]} -> "
@@ -275,10 +307,8 @@ def run_scenario(sc: Scenario, reader_spec: str, judge_spec: str, out_dir: str, 
         all_ink = tab.strokes()
         y = max(p[1] for s in all_ink for p in s["points"]) + 90
     sc_lines = [l for l, ink in zip(sc.lines, real or sc.lines) if ink]
-    last = getattr(w, "last_round", None)
-    elements = last.elements if last else []
-    for line, box in zip(sc_lines, boxes):
-        run.lines.append(asdict(score_line(line, box, elements, judged)))
+    rounds = [{"read": rd["read"], "boxes": rd["boxes"], "marks": rd["verdicts"]} for rd in run.rounds]
+    run.lines = [asdict(x) for x in score_lines(sc_lines, boxes, rounds)]
     os.makedirs(out_dir, exist_ok=True)
     run.preview = os.path.join(out_dir, f"{_slug(run.config)}__{sc.name}.png")
     pagemod.render(tab.strokes(), scale=0.4).save(run.preview)
@@ -298,11 +328,15 @@ def summarize(runs: list[Run]) -> dict:
             c["lines"] += 1
             c[l["outcome"]] += 1
             c["read"].append(l["read_score"])
+            if l.get("box_iou") is not None:
+                c.setdefault("iou", []).append(l["box_iou"])
         c["seconds"] += [x["seconds"] for x in r.rounds]
         c["errors"] += len(r.errors)
     for c in by.values():
         c["read_mean"] = round(sum(c["read"]) / max(1, len(c["read"])), 2)
         c["seconds_mean"] = round(sum(c["seconds"]) / max(1, len(c["seconds"])), 1)
+        iou = c.pop("iou", [])
+        c["box_iou_mean"] = round(sum(iou) / len(iou), 2) if iou else None
         del c["read"], c["seconds"]
     return by
 
@@ -310,11 +344,11 @@ def summarize(runs: list[Run]) -> dict:
 def report(runs: list[Run], path: str):
     s = summarize(runs)
     md = ["# Simulation: reagiert der Agent, und wie?", "",
-          "| Leseweg | Bewertung | gelesen (0..1) | Treffer | kritisch | verpasst | teilweise | ungefragt | Sek./Runde | Fehler |",
-          "|---|---|---|---|---|---|---|---|---|---|"]
+          "| Leseweg | Bewertung | gelesen (0..1) | Box trifft (IoU) | Treffer | kritisch | verpasst | teilweise | ungefragt | Sek./Runde | Fehler |",
+          "|---|---|---|---|---|---|---|---|---|---|---|"]
     for cfg, c in s.items():
         reader, judge = cfg.split(" | judge ")
-        md.append(f"| {reader} | {judge} | {c['read_mean']} | {c['hit']} | {c['critical']} | {c['miss']} | "
+        md.append(f"| {reader} | {judge} | {c['read_mean']} | {c['box_iou_mean']} | {c['hit']} | {c['critical']} | {c['miss']} | "
                   f"{c['partial']} | {c['noise']} | {c['seconds_mean']} | {c['errors']} |")
     md += ["", "Treffer = erwartete Reaktion (Fehler rot, Hilfe bei Frage, Wellenlinie bei Gekritzel). "
            "Kritisch = falsches Grün auf einem Fehler oder falsches Rot auf richtiger Zeile. "
@@ -341,6 +375,36 @@ def real_scenarios(path: str) -> list[Scenario]:
         src = d["source"] if os.path.isabs(d["source"]) else os.path.join(os.path.dirname(path), d["source"])
         out.append(Scenario(d["name"], d["subject"], [Line(**l) for l in d["lines"]], src))
     return out
+
+
+def rescore(json_path: str, real: str | None = None) -> list[Run]:
+    """Score saved runs again with the current scoring (older runs lack boxes: no IoU then)."""
+    pool = {s.name: s for s in SCENARIOS + (real_scenarios(real) if real else [])}
+    runs = []
+    for d in json.loads(Path(json_path).read_text()):
+        sc = pool.get(d["scenario"])
+        if not sc:
+            continue
+        lines = [l for l in sc.lines if any(x["text"] == l.text for x in d["lines"])] or sc.lines
+        boxes = [l.box or [0, 0, 1, 1] for l in lines]
+        rounds = []
+        for rd in d["rounds"]:
+            marks_ = rd.get("verdicts")
+            if marks_ is None:          # old format: "verdict/mark e3 text"
+                marks_ = []
+                for m in rd["marks"]:
+                    v, _, rest = m.partition("/")
+                    eid = rest.split()[1] if len(rest.split()) > 1 else ""
+                    if eid.startswith("e") and eid[1:].isdigit():
+                        marks_.append([v, int(eid[1:])])
+            rounds.append({"read": rd["read"], "boxes": rd.get("boxes", []), "marks": marks_})
+        run = Run(d["config"], d["scenario"], rounds=d["rounds"], errors=d["errors"], preview=d["preview"])
+        run.lines = [asdict(x) for x in score_lines(lines, boxes, rounds)]
+        if not any(rd.get("boxes") for rd in rounds):
+            for l in run.lines:
+                l["box_iou"] = None
+        runs.append(run)
+    return runs
 
 
 def main(configs: list[str], scenarios: list[str] | None, out_dir: str, log=print, real: str | None = None):

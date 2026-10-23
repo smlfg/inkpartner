@@ -1,0 +1,324 @@
+<style>
+  .ip { display: grid; gap: var(--cds-gap-xl); font-family: var(--font-anthropic-sans); max-width: 72rem; margin-inline: auto; }
+  .ip h1 { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); margin: 0; text-wrap: balance; }
+  .ip h2 { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: 0; text-wrap: balance; }
+  .ip .lead { color: var(--color-fg-muted); margin: var(--cds-gap-xs) 0 0; max-width: 62ch; }
+  .ip .note { color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); margin: var(--cds-gap-xs) 0 0; max-width: 70ch; }
+  .ip .tiles { display: grid; gap: var(--cds-gap-md); grid-template-columns: repeat(auto-fit, minmax(min(100%, 10.5rem), 1fr)); }
+  .ip .tile, .ip .card { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); min-width: 0; }
+  .ip .tile .lbl { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .ip .tile .val { font-family: var(--font-anthropic-serif); font-size: var(--cds-font-size-title); font-variant-numeric: tabular-nums; margin-top: var(--cds-gap-xs); }
+  .ip .tile .d { font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; margin-top: var(--cds-gap-xs); color: var(--color-fg-muted); }
+  .ip .good { color: var(--color-ok); } .ip .bad { color: var(--color-bad); }
+  .ip .grid2 { display: grid; gap: var(--cds-gap-md); grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); }
+  .ip .chart { min-height: 220px; position: relative; }
+  .ip .tablebox { overflow-x: auto; max-height: 34rem; overflow-y: auto; margin-top: var(--cds-gap-md); }
+  .ip table { border-collapse: collapse; width: 100%; font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; }
+  .ip th { text-align: left; font-weight: var(--cds-font-weight-medium); color: var(--color-fg-muted); padding: var(--cds-pad-xs) var(--cds-pad-sm); position: sticky; top: 0; background: var(--color-panel); border-bottom: 1px solid var(--color-border-line); white-space: nowrap; }
+  .ip td { padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); vertical-align: top; }
+  .ip td.num, .ip th.num { text-align: right; }
+  .ip td code { font-size: inherit; }
+  .ip .chip { display: inline-block; padding: 0 var(--cds-pad-sm); border-radius: 999px; border: 1px solid var(--color-border-line); white-space: nowrap; }
+  .ip .chip.hit, .ip .chip.ok { color: var(--color-ok); }
+  .ip .chip.critical { color: var(--color-bad); border-color: var(--color-bad); }
+  .ip .chip.miss, .ip .chip.noise, .ip .chip.partial { color: var(--color-warn); }
+  .ip .legend { display: flex; flex-wrap: wrap; gap: var(--cds-gap-sm) var(--cds-gap-md); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin-top: var(--cds-gap-sm); }
+  .ip .legend i { display: inline-block; width: .7rem; height: .7rem; border-radius: 3px; margin-right: .35rem; vertical-align: -1px; }
+  .ip .tip { position: absolute; pointer-events: none; background: var(--cds-surface-popover); border: 1px solid var(--cds-border); border-radius: var(--cds-radius); box-shadow: var(--cds-shadow-popover); padding: var(--cds-pad-xs) var(--cds-pad-sm); font-size: var(--cds-font-size-caption); white-space: nowrap; }
+  .ip .tip[hidden] { display: none; }
+  .ip ul.found { margin: var(--cds-gap-sm) 0 0; padding-left: 1.1rem; display: grid; gap: var(--cds-gap-xs); max-width: 75ch; }
+  .ip .ideas { display: grid; gap: var(--cds-gap-md); grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); margin-top: var(--cds-gap-md); }
+  .ip .idea h3 { font-size: var(--cds-font-size-body); font-weight: var(--cds-font-weight-medium); margin: 0; }
+  .ip .idea p { margin: var(--cds-gap-xs) 0 0; color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); line-height: 1.5; }
+  .ip .tag { display: inline-block; font-size: var(--cds-font-size-caption); letter-spacing: .02em; margin-bottom: var(--cds-gap-xs); color: var(--color-fg-muted); }
+  .ip .tag.now { color: var(--color-ok); } .ip .tag.later { color: var(--color-warn); } .ip .tag.creep { color: var(--color-bad); }
+  .ip [data-dash-source-state=refreshing] { opacity: .5; transition: opacity var(--cds-dur-slow); }
+  .ip [data-dash-source-state=empty] { color: transparent; }
+  .ip .fail { display: flex; align-items: center; justify-content: center; gap: .4rem; color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); min-height: 120px; }
+  .ip .fail::before { content: ""; width: .375rem; height: .375rem; border-radius: 50%; background: var(--color-bad); }
+</style>
+
+<div class="ip">
+  <header id="kopf">
+    <h1>inkpartner Messstand</h1>
+    <p class="lead" id="takeaway" data-source="kopf">—</p>
+    <p class="note">Ein simulierter Schüler schreibt Zeile für Zeile, der echte Agent reagiert auf einem simulierten Tablet, jede Reaktion wird gegen die Wahrheit des Szenarios gewertet. Das echte Tablet wird dabei nicht angefasst. Kacheln: lokales Modell qwen3.6, künstliche Schrift, letzte Runde gegen Runde 1.</p>
+  </header>
+
+  <section class="tiles" id="kacheln">
+    <div class="tile"><div class="lbl">Erwartete Reaktion getroffen</div><div class="val dash-skeleton" data-source="kopf" data-field="quote" data-where="runde=Runde%203">—</div><div class="d" data-source="veraenderung" data-field="quote">—</div></div>
+    <div class="tile"><div class="lbl">Kritisch (falsches Grün oder Rot)</div><div class="val dash-skeleton" data-source="kopf" data-field="kritisch" data-where="runde=Runde%203">—</div><div class="d" data-source="veraenderung" data-field="kritisch">—</div></div>
+    <div class="tile"><div class="lbl">Ungefragte Hilfe</div><div class="val dash-skeleton" data-source="kopf" data-field="ungefragt" data-where="runde=Runde%203">—</div><div class="d" data-source="veraenderung" data-field="ungefragt">—</div></div>
+    <div class="tile"><div class="lbl">Richtig gelesen (0–1)</div><div class="val dash-skeleton" data-source="kopf" data-field="lesen" data-where="runde=Runde%203">—</div><div class="d" data-source="veraenderung" data-field="lesen">—</div></div>
+    <div class="tile"><div class="lbl">Box trifft die Zeile (IoU)</div><div class="val dash-skeleton" data-source="kopf" data-field="box" data-where="runde=Runde%203">—</div><div class="d">erst ab Runde 2 gemessen</div></div>
+    <div class="tile"><div class="lbl">Sekunden pro Reaktion</div><div class="val dash-skeleton" data-source="kopf" data-field="sek" data-where="runde=Runde%203">—</div><div class="d" data-source="veraenderung" data-field="sek">—</div></div>
+  </section>
+
+  <section class="grid2">
+    <div class="card" id="verlauf-karte">
+      <h2>Was der Agent tat, Runde für Runde</h2>
+      <p class="note">qwen3.6, künstliche Schrift. Jede Zeile eines Szenarios mit ihrem Ergebnis.</p>
+      <div class="chart dash-skeleton" id="verlauf" data-source="verlauf"></div>
+      <div class="legend" id="verlauf-legende"></div>
+    </div>
+    <div class="card" id="zeit-karte">
+      <h2>Wartezeit bis zur Reaktion</h2>
+      <p class="note">Sekunden vom Ende der Schreibpause bis zur fertigen Reaktion, je Runde und Leseweg. Echte Seiten werden mit jeder Zeile langsamer, weil die ganze Seite neu gelesen wird.</p>
+      <div class="chart dash-skeleton" id="zeit" data-source="runden"></div>
+    </div>
+  </section>
+
+  <section class="card" id="vergleich-karte">
+    <h2>Lesewege und Modelle im Vergleich</h2>
+    <p class="note">Neueste Runde, nur künstliche Schrift, damit alle dieselben Szenarien hatten. Leseweg: <code>vlm</code> ganze Seite ans Bildmodell, <code>lines</code> Zeilen-Ausschnitte, <code>shot</code> Screenshot des Tablets, <code>agree</code> zwei Lesungen müssen übereinstimmen, <code>ocr</code> klassische Texterkennung. Runde 3 läuft noch: weitere Zeilen kommen dazu.</p>
+    <div class="tablebox">
+      <table id="vergleich" data-source="vergleich" data-row-key="id">
+        <thead><tr>
+          <th data-field="leseweg">Leseweg</th><th data-field="bewertung">Bewertung</th>
+          <th class="num" data-field="zeilen">Zeilen</th><th class="num" data-field="quote">Treffer</th>
+          <th class="num" data-field="kritisch">Kritisch</th><th class="num" data-field="verpasst">Verpasst</th>
+          <th class="num" data-field="ungefragt">Ungefragt</th><th class="num" data-field="lesen">Gelesen</th>
+          <th class="num" data-field="box">Box</th><th class="num" data-field="sek">Sek.</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" id="echt-karte">
+    <h2>Deine echten Seiten, Zeile für Zeile</h2>
+    <p class="note">Deine Handschrift von „Lernen“ (Aufgabe 4b) und „inkpartnertest“, so abgespielt, wie du geschrieben hast. Hier fielen die Fehler auf, die künstliche Schrift nicht zeigt: Fehllesen (9/4 als 5/4) führte zu falschem Rot, „das macht mir Probleme“ zu Hilfe an vielen Zeilen. Beides ist seitdem per Regel abgefangen; die Messung mit zwei Lesungen läuft in Runde 3.</p>
+    <div class="tablebox">
+      <table id="echt" data-source="echt" data-row-key="id">
+        <thead><tr>
+          <th data-field="runde">Runde</th><th data-field="leseweg">Leseweg</th><th data-field="seite">Seite</th><th data-field="zeile">Was du geschrieben hast</th>
+          <th data-field="gelesen_als">Gelesen als</th><th data-field="erwartet">Erwartet</th><th data-field="ergebnis">Ergebnis</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" id="gefunden">
+    <h2>Was die Schleife gefunden hat und wie es behoben ist</h2>
+    <ul class="found">
+      <li><b>Ungefragte Hilfe</b> nach der ersten Zeile jeder Aufgabe. Jetzt Regel: Hilfe nur, wenn die Seite fragt (Fragezeichen, „Hilfe“, „Problem“, „versteh…“), und nur einmal, an der fragenden Stelle.</li>
+      <li><b>Rot hing an der Laune des Modells.</b> Jetzt setzt sympy den Kreis beim ersten nachweislich falschen Schritt selbst; Folgezeilen werden nicht erneut eingekreist und nie grün.</li>
+      <li><b>Fehllesen machte richtige Zeilen rot</b> (echte Seite, 9/4 als 5/4). Jetzt urteilt sympy nur über sicher gelesene Zeilen; zwei unabhängige Lesungen müssen dafür übereinstimmen.</li>
+      <li><b>Gekritzel wurde als Text erfunden</b> („mwwv“). Jetzt: ist die zweite Lesung leer oder anders, gilt die Stelle als unleserlich und bekommt die Wellenlinie per Regel.</li>
+      <li><b>Boxen lagen neben der Zeile</b>, also auch Kreis und Haken. Jetzt rasten die Boxen auf die echten Striche ein.</li>
+      <li><b>Die Auswertung selbst war falsch</b>: echte Reaktionen zählten als „keine“. Jetzt werden Zeichen über den gelesenen Text zugeordnet, die Platzierung ist eine eigene Zahl.</li>
+    </ul>
+  </section>
+
+  <section id="vorschlaege">
+    <h2>Was ein ML- oder AI-Engineer als Nächstes vorschlagen würde</h2>
+    <p class="note">Grün: mit wenig Aufwand und klarem Nutzen. Gelb: lohnt sich, sobald die Messbasis steht. Rot: bewusster Scope Creep, erst wenn das Produkt im Alltag trägt.</p>
+    <div class="ideas">
+      <article class="card idea"><span class="tag now">Jetzt sinnvoll</span><h3>Nur das Neue lesen</h3><p>Statt nach jeder Zeile die ganze Seite neu zu lesen, nur den Ausschnitt um die neuen Striche ans Modell geben und den Rest aus der letzten Lesung übernehmen. Das senkt die Wartezeit auf langen Seiten am stärksten, ohne neues Modell.</p></article>
+      <article class="card idea"><span class="tag now">Jetzt sinnvoll</span><h3>Eigener Testsatz aus deiner Schrift</h3><p>Ein fester Satz deiner Seiten mit korrigierter Wahrheit, getrennt nach Fach, als Maßstab für jede Änderung (Zeichenfehlerrate, kritische Fehler). Deine eigenen Korrekturen am Tablet werden dabei zu Trainingsdaten, ohne extra Aufwand.</p></article>
+      <article class="card idea"><span class="tag now">Jetzt sinnvoll</span><h3>Striche statt Pixel nutzen</h3><p>Das Tablet liefert Stiftbahnen mit Zeit, Druck und Reihenfolge. Online-Handschrifterkennung arbeitet direkt darauf und ist bei Zahlen und Exponenten oft genauer als ein Bildmodell auf einem gerenderten Bild. Ein kleines Modell dafür läuft lokal in Millisekunden.</p></article>
+      <article class="card idea"><span class="tag now">Jetzt sinnvoll</span><h3>Kalibrierte Sicherheit</h3><p>Die „confidence“ der Modelle ist geraten. Besser messen, wie oft eine Lesung mit Sicherheit X wirklich stimmt, und die Schwelle für Grün daraus ableiten. Dazu: zwei verschiedene Leser, deren Übereinstimmung die eigentliche Sicherheit ist.</p></article>
+      <article class="card idea"><span class="tag later">Lohnt sich bald</span><h3>Inferenz auf dem M3 Max optimieren</h3><p>MLX statt Ollama für die Bildmodelle, 4-bit-Quantisierung, ein dauerhaft geladenes Modell, gecachte Bild-Tokens für den unveränderten Teil der Seite, strukturierte Ausgabe per Grammatik statt Nacharbeit. Messen zuerst: wo genau die Sekunden liegen.</p></article>
+      <article class="card idea"><span class="tag later">Lohnt sich bald</span><h3>Modell-Routing</h3><p>Schnelles kleines Modell zuerst; nur bei Uneinigkeit, unsicherer Lesung oder einer Hilfe-Frage das große lokale Modell, und nur selten die Cloud. So bleiben Kosten, Kontingent und Wartezeit klein, ohne Qualität bei den schweren Fällen zu verlieren.</p></article>
+      <article class="card idea"><span class="tag later">Lohnt sich bald</span><h3>Destillation</h3><p>Ein großes Modell (Cloud oder qwen3.6) bewertet viele deiner Seiten offline; ein kleines lokales Modell lernt diese Urteile. Ergebnis: Qualität nahe am großen Modell bei der Geschwindigkeit des kleinen.</p></article>
+      <article class="card idea"><span class="tag creep">Scope Creep</span><h3>LoRA-Adapter für deine Handschrift</h3><p>Ein kleiner Adapter auf einem Bildmodell (z. B. Qwen-VL mit MLX-LoRA auf dem Mac), trainiert auf deinen korrigierten Seiten. Erst sinnvoll, wenn der Testsatz zeigt, dass Lesefehler der größte verbleibende Fehler sind, und genug gelabelte Seiten da sind.</p></article>
+      <article class="card idea"><span class="tag creep">Scope Creep</span><h3>Eigenes Netz für Mathe-Handschrift</h3><p>Ein spezialisiertes Erkennungsnetz (Striche zu LaTeX), vortrainiert auf öffentlichen Daten wie CROHME, feinjustiert auf deine Schrift. Stark für Formeln, aufwendig zu bauen und zu pflegen; für Code, Diagramme und Prosa bräuchte es eigene Wege.</p></article>
+      <article class="card idea"><span class="tag creep">Scope Creep</span><h3>Eigene Kernel</h3><p>Handoptimierte Inferenz-Kernel bringen erst etwas, wenn ein festes Modell feststeht und die Messung zeigt, dass Rechenzeit (nicht Übertragung, Speichern oder Lesen der ganzen Seite) der Engpass ist. Heute liegt der größere Hebel woanders.</p></article>
+      <article class="card idea"><span class="tag now">AI-Engineering</span><h3>Evals als Gate</h3><p>Jede Änderung an Regeln, Prompts oder Modellen läuft erst durch die Simulation; sinkt die Trefferquote oder taucht ein kritischer Fehler auf, kommt sie nicht ans Tablet. Dazu Prompt- und Modellversionen in jedem Protokoll.</p></article>
+      <article class="card idea"><span class="tag now">AI-Engineering</span><h3>Spuren und Wiederholbarkeit</h3><p>Jede echte Runde speichert Seite, Lesung, Urteil, Regeln und Zeichen. Ein Fehler am Gerät wird so zum neuen Szenario in der Simulation, statt nur zur Erinnerung.</p></article>
+    </div>
+  </section>
+</div>
+
+<script>
+const OUT = {hit: "Treffer", critical: "kritisch", miss: "verpasst", partial: "teilweise", noise: "ungefragt", ok: "ruhig richtig"};
+window.ipOut = OUT;
+const EXPECTS_REACTION = (e) => e === "wrong" || e === "help" || e === "unreadable";
+const mean = (a) => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
+
+dash.calc("kopf", {
+  title: "Kennzahlen je Runde",
+  description: "qwen3.6 mit sich selbst als Bewerter, künstliche Schrift: Trefferquote auf Zeilen, die eine Reaktion verlangen, und Mittelwerte.",
+  inputs: ["zeilen", "runden"],
+  fn: (zeilen, runden) => {
+    const Q = "vlm:ollama:qwen3.6:35b-a3b";
+    const rounds = [...new Set(zeilen.map(z => z.runde))].sort();
+    return rounds.map(r => {
+      const z = zeilen.filter(x => x.runde === r && x.leseweg === Q && x.bewertung === "ollama:qwen3.6:35b-a3b" && !x.echt);
+      const need = z.filter(x => x.erwartet === "wrong" || x.erwartet === "help" || x.erwartet === "unreadable");
+      const iou = z.map(x => x.box_iou).filter(v => v !== null && v !== undefined);
+      const t = runden.filter(x => x.runde === r && x.leseweg === Q && !String(x.szenario).startsWith("echt-")).map(x => x.sekunden);
+      return {runde: r, quote: need.length ? need.filter(x => x.ergebnis === "hit").length / need.length : null,
+              kritisch: z.filter(x => x.ergebnis === "critical").length, ungefragt: z.filter(x => x.ergebnis === "noise").length,
+              lesen: z.length ? z.reduce((s, x) => s + x.lese_score, 0) / z.length : null,
+              box: iou.length ? iou.reduce((s, v) => s + v, 0) / iou.length : null,
+              sek: t.length ? t.reduce((s, v) => s + v, 0) / t.length : null, zeilen: z.length};
+    });
+  }
+});
+
+dash.calc("veraenderung", {
+  title: "Neueste Runde gegen Runde 1",
+  description: "Differenz der Kennzahlen zwischen der neuesten Runde und Runde 1.",
+  inputs: ["kopf"],
+  fn: (kopf) => {
+    const a = kopf.find(r => r.runde === "Runde 1"), b = kopf[kopf.length - 1];
+    if (!a || !b) return [];
+    const d = (k) => (a[k] === null || b[k] === null) ? null : b[k] - a[k];
+    return [{quote: d("quote"), kritisch: d("kritisch"), ungefragt: d("ungefragt"), lesen: d("lesen"), sek: d("sek")}];
+  }
+});
+
+dash.calc("verlauf", {
+  title: "Ergebnisse je Runde",
+  description: "Anzahl der Zeilen je Ergebnis und Runde, qwen3.6, künstliche Schrift.",
+  inputs: ["zeilen"],
+  fn: (zeilen) => {
+    const out = [];
+    for (const r of [...new Set(zeilen.map(z => z.runde))].sort())
+      for (const e of ["hit", "ok", "partial", "miss", "noise", "critical"])
+        out.push({runde: r, ergebnis: e, n: zeilen.filter(x => x.runde === r && x.ergebnis === e && !x.echt
+          && x.leseweg === "vlm:ollama:qwen3.6:35b-a3b" && x.bewertung === "ollama:qwen3.6:35b-a3b").length});
+    return out;
+  }
+});
+
+dash.calc("vergleich", {
+  title: "Vergleich der Lesewege",
+  description: "Je Leseweg und Bewertungsmodell in der neuesten Runde, nur künstliche Schrift.",
+  inputs: ["zeilen", "runden"],
+  fn: (zeilen, runden) => {
+    const last = [...new Set(zeilen.map(z => z.runde))].sort().pop();
+    const z = zeilen.filter(x => x.runde === last && !x.echt);
+    const keys = [...new Set(z.map(x => x.leseweg + " | " + x.bewertung))];
+    return keys.map(k => {
+      const [l, b] = k.split(" | ");
+      const zz = z.filter(x => x.leseweg === l && x.bewertung === b);
+      const need = zz.filter(x => x.erwartet === "wrong" || x.erwartet === "help" || x.erwartet === "unreadable");
+      const iou = zz.map(x => x.box_iou).filter(v => v !== null && v !== undefined);
+      const t = runden.filter(x => x.runde === last && x.leseweg === l && x.bewertung === b && !String(x.szenario).startsWith("echt-")).map(x => x.sekunden);
+      return {id: k, leseweg: l, bewertung: b, zeilen: zz.length,
+              quote: need.length ? need.filter(x => x.ergebnis === "hit").length / need.length : null,
+              kritisch: zz.filter(x => x.ergebnis === "critical").length, verpasst: zz.filter(x => x.ergebnis === "miss").length,
+              ungefragt: zz.filter(x => x.ergebnis === "noise").length,
+              lesen: zz.length ? zz.reduce((s, x) => s + x.lese_score, 0) / zz.length : null,
+              box: iou.length ? iou.reduce((s, v) => s + v, 0) / iou.length : null,
+              sek: t.length ? t.reduce((s, v) => s + v, 0) / t.length : null};
+    });
+  }
+});
+
+dash.calc("echt", {
+  title: "Echte Seiten",
+  description: "Jede Zeile deiner echten Seiten mit Lesung und Ergebnis.",
+  inputs: ["zeilen"],
+  fn: (zeilen) => zeilen.filter(x => x.echt).map((x, i) => ({
+    id: x.runde + "|" + x.leseweg + "|" + x.szenario + "|" + i, runde: x.runde, leseweg: x.leseweg,
+    seite: x.szenario === "echt-lernen-4b" ? "Lernen 4b" : "inkpartnertest", zeile: x.zeile,
+    gelesen_als: x.gelesen_als, erwartet: x.erwartet, ergebnis: x.ergebnis}))
+});
+
+const pct = d3.format(".0%"), f2 = d3.format(".2f"), f1 = d3.format(".1f");
+const signed = (v, fmt, goodIfDown) => {
+  if (v === null || v === undefined) return {t: "—", c: ""};
+  const s = (v > 0 ? "+" : v < 0 ? "−" : "±") + fmt(Math.abs(v));
+  const good = v === 0 ? null : (goodIfDown ? v < 0 : v > 0);
+  return {t: s + " seit Runde 1", c: good === null ? "" : (good ? "good" : "bad")};
+};
+
+function fail(el) { el.textContent = ""; const d = document.createElement("div"); d.className = "fail"; d.textContent = "Failed to load"; el.appendChild(d); }
+
+dash.onData(() => {
+  const k = dash.data("kopf"), v = dash.data("veraenderung");
+  const tiles = document.querySelectorAll("#kacheln .val");
+  if (k.status === "ok" && k.data.length) {
+    const r3 = k.data.find(r => r.runde === "Runde 3") || {};
+    const fmt = {quote: (x) => pct(x), kritisch: d3.format(","), ungefragt: d3.format(","), lesen: f2, box: f2, sek: f1};
+    tiles.forEach(el => { const f = el.dataset.field; el.classList.remove("dash-skeleton");
+      el.textContent = r3[f] === null || r3[f] === undefined ? "—" : fmt[f](r3[f]); });
+    const r1 = k.data.find(r => r.runde === "Runde 1");
+    const t = document.getElementById("takeaway");
+    if (r3.quote !== undefined && r1) {
+      t.textContent = `In Runde 3 trifft der Agent ${pct(r3.quote)} der Zeilen, die eine Reaktion verlangen, mit ${r3.kritisch} kritischen Fehlern und ${r3.ungefragt} ungefragter Hilfe (Runde 1: ${r1.ungefragt}). Die größte offene Baustelle ist, wo die Zeichen landen, und das Gekritzel.`;
+    }
+  } else if (k.status !== "loading") tiles.forEach(el => { el.classList.remove("dash-skeleton"); el.textContent = "—"; });
+  const ds = document.querySelectorAll("#kacheln .d[data-field]");
+  if (v.status === "ok" && v.data.length) {
+    const row = v.data[0];
+    const how = {quote: [pct, false], kritisch: [d3.format(","), true], ungefragt: [d3.format(","), true], lesen: [f2, false], sek: [f1, true]};
+    ds.forEach(el => { const [fm, down] = how[el.dataset.field]; const s = signed(row[el.dataset.field], fm, down);
+      el.textContent = s.t; el.className = "d " + s.c; });
+  }
+  drawVerlauf(); drawZeit(); drawTable("vergleich", ["leseweg", "bewertung", "zeilen", "quote", "kritisch", "verpasst", "ungefragt", "lesen", "box", "sek"]);
+  drawTable("echt", ["runde", "leseweg", "seite", "zeile", "gelesen_als", "erwartet", "ergebnis"]);
+});
+
+const COLORS = {hit: () => dash.colors[0], ok: () => "var(--cds-chart-muted)", partial: () => dash.colors[2], miss: () => dash.colors[3], noise: () => dash.colors[4], critical: () => "var(--cds-chart-status-critical)"};
+
+function drawVerlauf() {
+  const el = document.getElementById("verlauf"), d = dash.data("verlauf");
+  if (d.status === "error") { el.classList.remove("dash-skeleton"); return fail(el); }
+  if (d.status !== "ok") return;
+  el.classList.remove("dash-skeleton"); el.textContent = "";
+  const rows = d.data, rounds = [...new Set(rows.map(r => r.runde))], order = ["hit", "ok", "partial", "miss", "noise", "critical"];
+  const W = Math.max(280, el.clientWidth), rowH = 34, ml = 70, mr = 12, H = rounds.length * (rowH + 14) + 24;
+  const stack = rounds.map(r => { let x = 0; return order.map(e => { const n = (rows.find(q => q.runde === r && q.ergebnis === e) || {}).n || 0; const s = {runde: r, e, n, x0: x}; x += n; return s; }); });
+  const max = d3.max(stack, s => d3.sum(s, q => q.n)) || 1;
+  const x = d3.scaleLinear([0, max], [ml, W - mr]);
+  const svg = d3.select(el).append("svg").attr("width", "100%").attr("viewBox", `0 0 ${W} ${H}`);
+  const tip = d3.select(el).append("div").attr("class", "tip").attr("hidden", true);
+  stack.forEach((s, i) => {
+    const y = 6 + i * (rowH + 14);
+    svg.append("text").attr("x", 0).attr("y", y + rowH / 2 + 4).attr("fill", "var(--color-fg-muted)").style("font-size", "12px").text(s[0].runde);
+    s.filter(q => q.n > 0).forEach(q => {
+      svg.append("rect").attr("x", x(q.x0)).attr("y", y).attr("width", Math.max(1, x(q.x0 + q.n) - x(q.x0) - 2)).attr("height", rowH).attr("rx", 4)
+        .style("fill", COLORS[q.e]())
+        .on("mousemove", (ev) => { const [px, py] = d3.pointer(ev, el); tip.attr("hidden", null).style("left", Math.min(px + 12, W - 140) + "px").style("top", (py - 30) + "px").text(`${q.runde}: ${OUT[q.e]} ${q.n}`); })
+        .on("mouseleave", () => tip.attr("hidden", true));
+      if (x(q.x0 + q.n) - x(q.x0) > 18) svg.append("text").attr("x", x(q.x0) + 6).attr("y", y + rowH / 2 + 4).style("fill", "var(--color-bg)").style("font-size", "12px").style("pointer-events", "none").text(q.n);
+    });
+  });
+  const lg = document.getElementById("verlauf-legende"); lg.textContent = "";
+  order.forEach(e => { const s = document.createElement("span"); const i = document.createElement("i"); i.style.background = COLORS[e](); s.appendChild(i); s.appendChild(document.createTextNode(OUT[e])); lg.appendChild(s); });
+}
+
+function drawZeit() {
+  const el = document.getElementById("zeit"), d = dash.data("runden");
+  if (d.status === "error") { el.classList.remove("dash-skeleton"); return fail(el); }
+  if (d.status !== "ok") return;
+  el.classList.remove("dash-skeleton"); el.textContent = "";
+  const groups = d3.rollups(d.data, v => d3.mean(v, r => r.sekunden), r => r.runde + " · " + r.leseweg.replace("ollama:", "").replace(":35b-a3b", "").replace(":26b", "") + (String(r.szenario).startsWith("echt-") ? " · echt" : ""));
+  groups.sort((a, b) => b[1] - a[1]);
+  const W = Math.max(280, el.clientWidth), rowH = 18, H = groups.length * (rowH + 8) + 10;
+  const svg = d3.select(el).append("svg").attr("width", "100%").attr("viewBox", `0 0 ${W} ${H}`);
+  const labels = svg.selectAll("text.l").data(groups).join("text").attr("x", 0).attr("y", (g, i) => 6 + i * (rowH + 8) + rowH / 2 + 4).attr("fill", "var(--color-fg-muted)").style("font-size", "11px").text(g => g[0]);
+  let ml = 0; labels.each(function () { ml = Math.max(ml, this.getComputedTextLength()); }); ml += 10;
+  const x = d3.scaleLinear([0, d3.max(groups, g => g[1]) || 1], [ml, W - 44]);
+  groups.forEach((g, i) => {
+    const y = 6 + i * (rowH + 8);
+    svg.append("rect").attr("x", ml).attr("y", y).attr("width", Math.max(2, x(g[1]) - ml)).attr("height", rowH).attr("rx", 4).style("fill", g[0].includes("echt") ? dash.colors[3] : dash.colors[0]);
+    svg.append("text").attr("x", x(g[1]) + 6).attr("y", y + rowH / 2 + 4).attr("fill", "var(--color-fg)").style("font-size", "11px").text(f1(g[1]) + " s");
+  });
+}
+
+function drawTable(id, cols) {
+  const d = dash.data(id), tb = document.querySelector(`#${id} tbody`);
+  if (d.status !== "ok") { if (d.status === "error") { tb.textContent = ""; } return; }
+  tb.textContent = "";
+  const fmt = {quote: (v) => v === null ? "—" : pct(v), lesen: (v) => v === null ? "—" : f2(v), box: (v) => v === null || v === undefined ? "—" : f2(v), sek: (v) => v === null ? "—" : f1(v)};
+  for (const r of d.data) {
+    const tr = document.createElement("tr"); tr.dataset.key = r.id;
+    for (const c of cols) {
+      const td = document.createElement("td");
+      const v = r[c];
+      if (c === "ergebnis") { const s = document.createElement("span"); s.className = "chip " + v; s.textContent = OUT[v] || v; td.appendChild(s); }
+      else if (c === "zeile" || c === "gelesen_als") { const code = document.createElement("code"); code.textContent = v || "—"; td.appendChild(code); }
+      else { td.textContent = fmt[c] ? fmt[c](v) : (v === null || v === undefined || v === "" ? "—" : String(v)); }
+      if (typeof v === "number") td.className = "num";
+      tr.appendChild(td);
+    }
+    tb.appendChild(tr);
+  }
+}
+</script>

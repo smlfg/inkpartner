@@ -105,3 +105,4 @@ aber die Oberfläche neu. Beides zugleich kann heute kein Weg. Die Rückprüfung
 Farbe und Ebene absichtlich: Sie erkennt die Tinte auf beiden Wegen.
 
 Vergleich mit den bisherigen Varianten: [docs/VERGLEICH.md](docs/VERGLEICH.md).
+Messergebnisse der Simulation als Seite: [docs/messstand/](docs/messstand/README.md).

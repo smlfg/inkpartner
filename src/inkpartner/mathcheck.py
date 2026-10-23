@@ -78,7 +78,9 @@ def meaning(text: str, above: str = ""):
 def check_steps(elements: list[Element]) -> dict[str, str]:
     """element id -> 'correct' | 'wrong' for every line sympy can decide."""
     from sympy import simplify, EmptySet
-    steps = sorted((e for e in elements if e.kind in ("line", "formula") and e.legible),
+    # Only lines read with certainty: on a real page (Lernen, simulation round 2) '9/4' was read as
+    # '5/4' and sympy, right about the wrong text, turned a correct line red.
+    steps = sorted((e for e in elements if e.kind in ("line", "formula") and e.certain),
                    key=lambda e: e.bbox[1])
     verdicts: dict[str, str] = {}
     task: dict[str, tuple] = {}         # group -> first equation / expression of the exercise

@@ -48,6 +48,7 @@ def validate(actions: list[Action], elements: list[Element], profile, *, deliver
     by_id = {e.id: e for e in elements}
     overrides = overrides or {}
     asked = page_asks_for_help(elements)
+    helpable = help_targets(elements)
     out = Review()
     for a in actions:
         el = by_id.get(a.element)
@@ -60,6 +61,8 @@ def validate(actions: list[Action], elements: list[Element], profile, *, deliver
             reason = f"mark {a.mark!r} not allowed for {a.verdict!r} in {profile.name}"
         elif a.verdict == "help" and not asked:
             reason = "nobody asked for help on this page"
+        elif a.verdict == "help" and a.element not in helpable:
+            reason = "help only where the question is (or the task right before it)"
         elif a.verdict == "correct" and not el.certain:
             reason = "uncertain reading is never confirmed green"
         elif a.verdict in ("correct", "wrong") and not el.legible:
@@ -80,9 +83,32 @@ def validate(actions: list[Action], elements: list[Element], profile, *, deliver
     # Small and incremental beats one big throw: at most N actions per round, errors first.
     order = {"help": 0, "wrong": 1, "unreadable": 2, "hint": 3, "correct": 4}
     out.accepted.sort(key=lambda a: order[a.verdict])
+    helps = [a for a in out.accepted if a.verdict == "help"]
+    for a in helps[1:]:                                # one answer to one question per round
+        out.accepted.remove(a)
+        out.rejected.append((a, "only one help note per round"))
     for a in out.accepted[profile.max_actions:]:
         out.rejected.append((a, "over the per-round limit"))
     out.accepted = out.accepted[:profile.max_actions]
+    return out
+
+
+def help_targets(elements: list[Element]) -> set[str]:
+    """The element that asks, and the nearest element above it (the task the question is about).
+    Real page 2026-10-23: 'das macht mir Probleme' made the agent hang help on five lines."""
+    from .elements import ASK
+    out = set()
+    for q in elements:
+        if not ASK.search(q.text or ""):
+            continue
+        out.add(q.id)
+        above = [e for e in elements if e.id != q.id and e.bbox[1] <= q.bbox[1] + 0.5 * (q.bbox[3] - q.bbox[1])
+                 and not ASK.search(e.text or "")]
+        if above:
+            qc = ((q.bbox[0] + q.bbox[2]) / 2, (q.bbox[1] + q.bbox[3]) / 2)
+            near = min(above, key=lambda e: abs((e.bbox[1] + e.bbox[3]) / 2 - qc[1])
+                       + 0.3 * abs((e.bbox[0] + e.bbox[2]) / 2 - qc[0]))
+            out.add(near.id)
     return out
 
 

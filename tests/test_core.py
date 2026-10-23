@@ -324,6 +324,20 @@ class Help(unittest.TestCase):
         r = plan.validate([plan.Action("t", "help", "note", text="Klammer aufloesen")], els, profiles.get("math"))
         self.assertEqual(len(r.accepted), 1)
 
+    def test_help_only_at_the_question_and_once(self):
+        els = [Element("a", "formula", [300, 100, 900, 180], "(a+b)^2=a^2+2ab+b^2", confidence=.95),
+               Element("t", "formula", [300, 260, 900, 400], "(3x+4y)^3 =", confidence=.95),
+               Element("q", "text", [950, 250, 1700, 330], "das macht mir Probleme", confidence=.95),
+               Element("z", "formula", [100, 1500, 700, 1700], "(z+x)^4 =>", confidence=.95)]
+        acts = [plan.Action(i, "help", "note", text="Hinweis") for i in ("a", "t", "q", "z")]
+        r = plan.validate(acts, els, profiles.get("math"))
+        self.assertEqual(len(r.accepted), 1)
+        self.assertIn(r.accepted[0].element, {"t", "q"})
+
+    def test_uncertain_reading_gets_no_verdict_from_sympy(self):
+        els = [el("a", "x^2+3x=1", 100), el("b", "1+5/4 = 4/4+9/4 = 13/4", 200, confidence=0.5)]
+        self.assertEqual(mathcheck.check_steps(els), {})
+
     def test_help_must_be_a_note(self):
         els = [Element(id="q", kind="formula", bbox=[300, 160, 960, 410], text="x=?", confidence=0.9)]
         r = plan.validate([plan.Action("q", "help", "circle")], els, profiles.get("math"))

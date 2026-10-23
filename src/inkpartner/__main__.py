@@ -50,11 +50,12 @@ def main(argv=None) -> int:
                                               "lines:ollama:gemma4:26b@..., ocr:apple@ollama-text:gpt-oss:20b")
     sm.add_argument("--scenario", action="append", help="only these scenarios (default: all)")
     sm.add_argument("--out", default="sim-out")
+    sm.add_argument("--real", help="JSON with real pages and their truth (replayed line by line)")
     a = ap.parse_args(argv)
 
     if a.cmd == "sim":
         from . import sim
-        summary = sim.main(a.configs, a.scenario, a.out, log=lambda *x: print(*x, flush=True))
+        summary = sim.main(a.configs, a.scenario, a.out, log=lambda *x: print(*x, flush=True), real=a.real)
         print(json.dumps(summary, indent=1))
         return 0
 

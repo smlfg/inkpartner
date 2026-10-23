@@ -35,6 +35,7 @@ from .guards import Guard, Limits
 class Line:
     text: str
     expect: str            # wrong | ok | help | unreadable
+    box: list | None = None        # real pages: where this line is on the page
 
 
 @dataclass
@@ -42,6 +43,26 @@ class Scenario:
     name: str
     subject: str
     lines: list[Line]
+    source: str | None = None      # a real .rm page: its strokes are replayed line by line
+
+
+def real_line_ink(sc: Scenario) -> list[list[dict]]:
+    """Split a real page into the scenario's lines: every student stroke goes to the line whose box
+    holds its centre (else the nearest). Strokes taller than 600 px are dropped - on 2026-10-23 that
+    was the agent's own garbage from a failed pen test, not the student's writing."""
+    strokes = [s for s in pagemod.read_strokes(sc.source) if s["author"] == "user"]
+    out = [[] for _ in sc.lines]
+    for s in strokes:
+        b = marks.bbox_of([s])
+        if b[3] - b[1] > 600:
+            continue
+        cx, cy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+
+        def dist(l):
+            x0, y0, x1, y1 = l.box
+            return max(x0 - cx, 0, cx - x1) + max(y0 - cy, 0, cy - y1)
+        out[min(range(len(sc.lines)), key=lambda i: dist(sc.lines[i]))].append(s)
+    return out
 
 
 SCENARIOS = [
@@ -220,12 +241,18 @@ def run_scenario(sc: Scenario, reader_spec: str, judge_spec: str, out_dir: str, 
     w.tick()                                           # the empty page is old news
     y = 220.0
     boxes, judged = [], []
+    real = real_line_ink(sc) if sc.source else None
     for i, line in enumerate(sc.lines):
         height = rng.uniform(70, 95)
         tab.clock += 30
-        ink = handwrite(line.text, (200 + rng.uniform(-30, 30), y), height, rng)
+        if real is not None:
+            ink = [dict(s, points=[list(p) for p in s["points"]]) for s in real[i]]
+            if not ink:
+                continue
+        else:
+            ink = handwrite(line.text, (200 + rng.uniform(-30, 30), y), height, rng)
         tab.student_writes(ink)
-        boxes.append(marks.bbox_of(ink))
+        boxes.append(line.box or marks.bbox_of(ink))
         tab.clock += 1
         assert w.tick() is None                        # still writing: no reaction yet
         tab.clock += int(w.settle_s) + 2
@@ -247,9 +274,10 @@ def run_scenario(sc: Scenario, reader_spec: str, judge_spec: str, out_dir: str, 
                 f"{[f'{a.verdict}/{a.mark}' for a in r.accepted]}")
         all_ink = tab.strokes()
         y = max(p[1] for s in all_ink for p in s["points"]) + 90
+    sc_lines = [l for l, ink in zip(sc.lines, real or sc.lines) if ink]
     last = getattr(w, "last_round", None)
     elements = last.elements if last else []
-    for line, box in zip(sc.lines, boxes):
+    for line, box in zip(sc_lines, boxes):
         run.lines.append(asdict(score_line(line, box, elements, judged)))
     os.makedirs(out_dir, exist_ok=True)
     run.preview = os.path.join(out_dir, f"{_slug(run.config)}__{sc.name}.png")
@@ -305,9 +333,19 @@ def report(runs: list[Run], path: str):
     return s
 
 
-def main(configs: list[str], scenarios: list[str] | None, out_dir: str, log=print):
+def real_scenarios(path: str) -> list[Scenario]:
+    """Real pages with their truth, from a JSON file: [{name, subject, source, lines: [{text, expect, box}]}]"""
+    out = []
+    for d in json.loads(Path(path).read_text()):
+        src = d["source"] if os.path.isabs(d["source"]) else os.path.join(os.path.dirname(path), d["source"])
+        out.append(Scenario(d["name"], d["subject"], [Line(**l) for l in d["lines"]], src))
+    return out
+
+
+def main(configs: list[str], scenarios: list[str] | None, out_dir: str, log=print, real: str | None = None):
     runs = []
-    chosen = [s for s in SCENARIOS if not scenarios or s.name in scenarios]
+    pool = SCENARIOS + (real_scenarios(real) if real else [])
+    chosen = [s for s in pool if not scenarios or s.name in scenarios]
     for cfg in configs:
         reader_spec, _, judge_spec = cfg.partition("@")
         judge_spec = judge_spec or models.DEFAULT

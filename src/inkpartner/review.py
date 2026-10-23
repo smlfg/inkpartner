@@ -49,6 +49,10 @@ def run(strokes: list[dict], *, model=None, subject: str | None = None, elements
             first_wrong.setdefault(by_id[eid].group, eid)
     proposals += [(plan.Action(eid, "wrong", "circle", why="sympy"), "")
                   for eid in first_wrong.values() if eid not in marked_wrong]
+    # An element nobody can read gets the wavy line - the reading decided that, not the judge's mood.
+    acted = {a.element for a, _ in proposals}
+    proposals += [(plan.Action(e.id, "unreadable", "wavy", why="illegible"), "")
+                  for e in elements if not e.legible and e.id not in acted and profile.marks >= {"wavy"}]
     review = plan.validate([a for a, _ in proposals], elements, profile, delivered=delivered, overrides=checked)
     height = max([PAGE_H] + [int(p[1]) + 200 for s in strokes for p in s["points"]])
     ink = plan.draw(review.accepted, elements, strokes, width=PAGE_W, height=height)

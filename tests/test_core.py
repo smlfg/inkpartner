@@ -716,3 +716,24 @@ class SimScoring(unittest.TestCase):
         out = sim.score_lines([sim.Line("2x+4=10", "ok")], [[0, 0, 1, 1]],
                               [{"read": ["2x+4=10"], "boxes": [], "marks": [["help", 0]]}])
         self.assertEqual(out[0].outcome, "noise")
+
+
+class TwoReadings(unittest.TestCase):
+    def test_disagreement_makes_uncertain_and_nothing_readable_makes_illegible(self):
+        from inkpartner import readers
+        A = lambda st: ("math", [Element("e0", "formula", [0, 0, 100, 50], "2x=8", confidence=0.95),
+                                 Element("e1", "line", [0, 100, 100, 150], "mwwv", confidence=0.9)])
+        B = lambda st: ("math", [Element("e0", "formula", [0, 0, 100, 50], "2x=8", confidence=0.9),
+                                 Element("e1", "line", [0, 100, 100, 150], "", confidence=0.1, legible=False)])
+        _, els = readers.agree(A, B, [])
+        self.assertTrue(els[0].certain)
+        self.assertFalse(els[1].legible)
+        C = lambda st: ("math", [Element("e0", "formula", [0, 0, 100, 50], "2x=6", confidence=0.9),
+                                 Element("e1", "line", [0, 100, 100, 150], "mmw", confidence=0.9)])
+        _, els = readers.agree(A, C, [])
+        self.assertFalse(els[0].certain)                 # 2x=8 vs 2x=6: never green
+
+    def test_illegible_element_gets_the_wavy_line_without_the_model(self):
+        els = [Element("u", "line", [100, 100, 300, 150], "", confidence=0.1, legible=False)]
+        r = review.run([], subject="math", elements=els, proposals=[])
+        self.assertEqual([(a.verdict, a.mark) for a in r.accepted], [("unreadable", "wavy")])

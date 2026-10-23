@@ -28,9 +28,27 @@ def main(argv=None) -> int:
     r.add_argument("--elements", help="JSON list of elements instead of the model's reading")
     r.add_argument("--proposals", help="JSON list of actions (+ 'speech') instead of the model's judgement; "
                                        "with --elements no model is called (replay)")
+    r.add_argument("--model", help=f"model chain, default {{INKPARTNER_MODEL}} or ollama:qwen3.6:35b-a3b")
     r.add_argument("-o", "--out", help="write page + agent layer to this .rm (the input stays untouched)")
     r.add_argument("--preview", help="PNG of the page with the agent's marks")
+    w = sub.add_parser("watch", help="watch the tablet, review where the student writes, write back")
+    w.add_argument("--host", default="remarkable")
+    w.add_argument("--model", help="model chain, default ollama:qwen3.6:35b-a3b")
+    w.add_argument("--subject", choices=["math", "code", "diagram", "pm", "prose"])
+    w.add_argument("--interval", type=float, default=3.0)
+    w.add_argument("--settle", type=float, default=4.0, help="seconds without a new stroke before a review")
+    w.add_argument("--allow-restart", action="store_true",
+                   help="allow the file path (colour, own layer) when the page has been quiet for --restart-quiet")
+    w.add_argument("--restart-quiet", type=float, default=120.0)
+    w.add_argument("--no-pen", action="store_true", help="do not use the V-Pen path")
+    w.add_argument("--once", action="store_true", help="stop after the first review")
     a = ap.parse_args(argv)
+
+    if a.cmd == "watch":
+        from . import watch
+        watch.run(a.host, a.model, a.subject, a.interval, a.once, settle_s=a.settle,
+                  allow_restart=a.allow_restart, restart_quiet_s=a.restart_quiet, pen=not a.no_pen)
+        return 0
 
     if a.cmd == "demo":
         from . import demo
@@ -51,8 +69,8 @@ def main(argv=None) -> int:
         kw["proposals"] = [(Action(**{k: v for k, v in d.items() if k != "speech"}), d.get("speech", ""))
                            for d in json.load(open(a.proposals))]
     if not (a.elements and a.proposals):
-        import anthropic
-        kw["client"] = anthropic.Anthropic()
+        from . import models
+        kw["model"] = models.get(a.model)
     result = review.run(strokes, **kw)
     if a.out:
         print(json.dumps(pagemod.append_strokes(a.page, result.strokes, a.out)), file=sys.stderr)

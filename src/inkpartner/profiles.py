@@ -16,13 +16,13 @@ class Profile:
     judge: str                          # instructions for the judging model
     marks: frozenset = ALL_MARKS
     note_max_chars: int = 60
+    help_max_chars: int = 140           # an answer to "= ?" may be a little longer than a mark
     max_actions: int = 4
     deterministic: str | None = None    # name of a checker that can overrule the model
 
 
 COMMON = (
-    "You are a tutor reading over the student's shoulder on a paper tablet. The student writes in "
-    "black. You answer with marks on the same page. Rules: never solve the task for the student, "
+    "You are a tutor reading over the student's shoulder on a paper tablet. You answer with marks on the same page. Rules: never solve the task for the student, "
     "never write the next step, give the smallest help that lets them find it themselves. A note is "
     "at most a few words in German. Mark 'correct' only what you are sure is right. If you cannot read "
     "something, say 'unreadable' instead of guessing. Prefer few, precise marks over many.")

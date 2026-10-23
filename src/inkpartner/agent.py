@@ -7,14 +7,11 @@ note about a drawing can refer to what it looks like.
 """
 from __future__ import annotations
 
-import base64
 import json
 
 from . import page as pagemod
 from .elements import KINDS, Element
 from .plan import Action
-
-MODEL = "claude-opus-5-5"
 
 READ_SCHEMA = {
     "type": "object",
@@ -53,7 +50,7 @@ JUDGE_SCHEMA = {
         "type": "object",
         "properties": {
             "element": {"type": "string"},
-            "verdict": {"type": "string", "enum": ["correct", "wrong", "hint", "unreadable"]},
+            "verdict": {"type": "string", "enum": ["correct", "wrong", "hint", "unreadable", "help"]},
             "mark": {"type": "string", "enum": ["check", "underline", "circle", "wavy", "question", "note"]},
             "text": {"type": "string"},
             "why": {"type": "string"},
@@ -66,34 +63,11 @@ JUDGE_SCHEMA = {
 }
 
 
-def _image_block(png: bytes) -> dict:
-    return {"type": "image", "source": {"type": "base64", "media_type": "image/png",
-                                         "data": base64.standard_b64encode(png).decode()}}
-
-
-def _json_call(client, content, schema, effort: str) -> dict:
-    response = client.beta.messages.create(
-        model=MODEL,
-        max_tokens=16000,
-        betas=["server-side-fallback-2026-07-01"],
-        fallbacks="default",
-        output_config={"effort": effort, "format": {"type": "json_schema", "schema": schema}},
-        messages=[{"role": "user", "content": content}],
-    )
-    if response.stop_reason == "refusal":
-        raise RuntimeError("model declined the request")
-    if response.stop_reason == "max_tokens":
-        raise RuntimeError("model output was cut off")
-    text = next(b.text for b in response.content if b.type == "text")
-    return json.loads(text)
-
-
-def read(client, strokes: list[dict], *, effort: str = "high") -> tuple[str, list[Element]]:
+def read(model, strokes: list[dict]) -> tuple[str, list[Element]]:
     """Student strokes -> (subject, elements). Agent ink is left out of the picture on purpose."""
     img = pagemod.render(strokes, authors=("user",))
     fx0, fy0, fx1, fy1 = img.info["frame"]       # the image covers this part of the page
-    data = _json_call(client, [_image_block(pagemod.png_bytes(img)), {"type": "text", "text": READ_PROMPT}],
-                      READ_SCHEMA, effort)
+    data = model.json([pagemod.png_bytes(img)], READ_PROMPT, READ_SCHEMA)
     els = []
     for i, d in enumerate(data["elements"]):
         b = (d["box"] + [0, 0, 0, 0])[:4]
@@ -106,23 +80,32 @@ def read(client, strokes: list[dict], *, effort: str = "high") -> tuple[str, lis
     return data["subject"], els
 
 
-def judge(client, strokes: list[dict], elements: list[Element], profile, *,
-          checked: dict[str, str] | None = None, effort: str = "high") -> list[tuple[Action, str]]:
+def judge(model, strokes: list[dict], elements: list[Element], profile, *,
+          checked: dict[str, str] | None = None) -> list[tuple[Action, str]]:
     """Elements -> proposed actions (with optional speech). The rules in plan.validate decide."""
     listing = json.dumps([{"id": e.id, "kind": e.kind, "text": e.text, "legible": e.legible,
-                           "confidence": round(e.confidence, 2)} for e in elements], ensure_ascii=False)
+                           "confidence": round(e.confidence, 2), "asks_for_help": asks_for_help(e)}
+                          for e in elements], ensure_ascii=False)
     facts = ""
     if checked:
         facts = ("\nA symbolic checker already decided these steps; agree with it: "
                  + json.dumps(checked) + "\n")
     prompt = (f"{profile.judge}\n\nElements on the page:\n{listing}\n{facts}\n"
               "Propose at most a few actions. Marks: check/underline for correct; circle, underline or a "
-              "note for wrong; question or note for a hint; wavy for unreadable. 'text' is the note "
-              "(empty unless mark=note). 'speech' is one short German sentence of natural language that "
+              "note for wrong; question or note for a hint; wavy for unreadable. If the student asks for "
+              "help (asks_for_help, a question mark, '= ?', 'Hilfe', a task with no own work yet), answer "
+              "with verdict 'help', mark 'note': say in German what the problem is and the very next step "
+              f"or the rule to use, at most {profile.help_max_chars} characters, never the result. "
+              "'text' is the note (empty unless mark=note). 'speech' is one short German sentence of natural language that "
               "could be said aloud instead - no formulas, symbols, code or file paths; empty if nothing "
               "worth saying.")
     img = pagemod.render(strokes, authors=("user", "agent"))
-    data = _json_call(client, [_image_block(pagemod.png_bytes(img)), {"type": "text", "text": prompt}],
-                      JUDGE_SCHEMA, effort)
+    data = model.json([pagemod.png_bytes(img)], prompt, JUDGE_SCHEMA)
     return [(Action(element=a["element"], verdict=a["verdict"], mark=a["mark"], text=a["text"], why=a["why"]),
              a["speech"]) for a in data["actions"]]
+
+
+def asks_for_help(e: Element) -> bool:
+    """A line that ends in a question - '(3x+4y)^3 = ?' - is a request, not an answer to check."""
+    t = e.text.strip().lower().replace(" ", "")
+    return t.endswith("?") or t.endswith("=") or "hilfe" in t

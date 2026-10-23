@@ -262,11 +262,13 @@ class Agent(unittest.TestCase):
     def fake(self, payloads):
         calls = []
 
-        def create(**kw):
-            calls.append(kw)
-            text = json.dumps(payloads[len(calls) - 1])
-            return SimpleNamespace(stop_reason="end_turn", content=[SimpleNamespace(type="text", text=text)])
-        return SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=create))), calls
+        class Fake:
+            name = "fake"
+
+            def json(self, images, prompt, schema):
+                calls.append({"images": images, "prompt": prompt, "schema": schema})
+                return payloads[len(calls) - 1]
+        return Fake(), calls
 
     def test_full_round_with_fake_model(self):
         strokes = page.read_strokes(FIX)
@@ -278,16 +280,60 @@ class Agent(unittest.TestCase):
             {"element": "e1", "verdict": "wrong", "mark": "note", "text": "Distributivgesetz?", "why": "",
              "speech": "Wie löst man die Klammer auf?"},
             {"element": "e1", "verdict": "correct", "mark": "check", "text": "", "why": "model error", "speech": ""}]}
-        client, calls = self.fake([read, judged])
-        r = review.run(strokes, client=client)
+        model, calls = self.fake([read, judged])
+        r = review.run(strokes, model=model)
         self.assertEqual(r.subject, "math")
-        self.assertEqual(calls[0]["model"], "claude-opus-5-5")
-        self.assertEqual(calls[0]["output_config"]["format"]["type"], "json_schema")
+        self.assertTrue(calls[0]["images"][0].startswith(b"\x89PNG"))
+        self.assertIn("elements", calls[0]["schema"]["properties"])
         self.assertEqual(r.checked, {"e1": "wrong"})
         self.assertEqual(sorted(a.mark for a in r.accepted), ["circle", "note"])
         self.assertTrue(any("contradicts" in why for _, why in r.rejected))
         self.assertEqual(list(r.speech.values()), ["Wie löst man die Klammer auf?"])
         self.assertTrue(r.strokes)
+
+
+class Help(unittest.TestCase):
+    def test_question_on_the_page_gets_a_help_note(self):
+        from inkpartner import agent
+        els = [Element(id="q", kind="formula", bbox=[300, 160, 960, 410], text="(3x+4y)^3 = ?", confidence=0.9)]
+        self.assertTrue(agent.asks_for_help(els[0]))
+        props = [(plan.Action("q", "help", "note",
+                              text="Binom hoch 3: Pascal-Dreieck 1 3 3 1 - welche Potenzen von 3x und 4y?"), "")]
+        r = review.run([], subject="math", elements=els, proposals=props)
+        self.assertEqual([a.verdict for a in r.accepted], ["help"])
+        self.assertEqual({s["color"] for s in r.strokes}, {"blue"})
+        ys = sorted({round(s["points"][0][1]) for s in r.strokes})
+        self.assertGreater(ys[-1] - ys[0], 60)               # wrapped onto more than one line
+
+    def test_help_must_be_a_note(self):
+        els = [Element(id="q", kind="formula", bbox=[300, 160, 960, 410], text="x=?", confidence=0.9)]
+        r = plan.validate([plan.Action("q", "help", "circle")], els, profiles.get("math"))
+        self.assertEqual(r.accepted, [])
+
+
+class Models(unittest.TestCase):
+    def test_chain_falls_back_and_says_why(self):
+        from inkpartner import models
+
+        class Broken:
+            name = "ollama:x"
+
+            def json(self, *a):
+                raise ConnectionError("ollama not running")
+
+        class Works:
+            name = "gemini:y"
+
+            def json(self, *a):
+                return {"ok": 1}
+        c = models.Chain([Broken(), Works()])
+        self.assertEqual(c.json([], "", {}), {"ok": 1})
+        self.assertEqual(c.used, "gemini:y")
+        self.assertIn("ollama not running", c.errors[0])
+
+    def test_json_is_found_inside_chatter(self):
+        from inkpartner import models
+        self.assertEqual(models._loads('Sure!\n```json\n{"a": 1}\n```'), {"a": 1})
 
 
 class Demo(unittest.TestCase):
@@ -302,3 +348,91 @@ class Demo(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeTabletFS:
+    """A tablet as a dict of page files, with its own clock."""
+
+    def __init__(self, files):
+        self.files, self.clock, self.mtimes, self.restarts = dict(files), 1000, {k: 0 for k in files}, 0
+        self.host = "fake"
+
+    def write(self, rel, data):
+        self.files[rel] = data
+        self.mtimes[rel] = self.clock
+
+    def scan(self):
+        return {rel: (self.mtimes[rel], len(d)) for rel, d in self.files.items()}
+
+    def fetch(self, rel):
+        return self.files[rel]
+
+    def name(self, rel):
+        return rel.split("/")[0]
+
+    def write_file_and_restart(self, rel, data, expected):
+        self.restarts += 1
+        self.files[rel] = data
+
+
+class WatcherTest(unittest.TestCase):
+    def setUp(self):
+        from inkpartner import watch
+        self.watch = watch
+        self.fix = open(FIX, "rb").read()
+        self.tab = FakeTabletFS({"old/p.rm": self.fix})
+        self.reviews = []
+        test = self
+
+        class Model:
+            name = used = "fake"
+
+            def json(self, images, prompt, schema):
+                if "elements" in schema["properties"]:
+                    test.reviews.append(1)
+                    return {"subject": "math", "elements": [{"kind": "formula", "text": "(3x+4y)^3 = ?", "latex": "",
+                            "box": [.2, .05, .6, .12], "confidence": .9, "legible": True, "group": "1"}]}
+                return {"actions": [{"element": "e0", "verdict": "help", "mark": "note",
+                                     "text": "Pascal-Dreieck: 1 3 3 1", "why": "", "speech": ""}]}
+
+        class Pen:
+            def __init__(self, tab):
+                self.tab, self.sent = tab, []
+
+            def deliver(self, strokes):          # the tablet saves the injected ink into the page
+                self.sent.append(strokes)
+                tmp = tempfile.mkdtemp()
+                src, out = os.path.join(tmp, "a.rm"), os.path.join(tmp, "b.rm")
+                open(src, "wb").write(self.tab.files["new/p.rm"])
+                page.append_strokes(src, strokes, out)
+                self.tab.write("new/p.rm", open(out, "rb").read())
+                return {"status": "delivered_unconfirmed"}
+        self.pen = Pen(self.tab)
+        self.w = watch.Watcher(self.tab, Model(), pen=self.pen, log=lambda *a: None,
+                               state_file=os.path.join(tempfile.mkdtemp(), "s.json"))
+        self.w.verify_wait_s = 0
+
+    def test_finds_a_new_notebook_reviews_after_the_pause_and_ignores_its_own_echo(self):
+        self.assertIsNone(self.w.tick())                 # start: old page is old news
+        self.tab.clock = 1100
+        self.tab.write("new/p.rm", self.fix)             # student opens a notebook and writes
+        self.assertIsNone(self.w.tick())                 # still writing (pause not reached)
+        self.tab.clock = 1106
+        r = self.w.tick()
+        self.assertIsNotNone(r)
+        self.assertEqual(len(self.pen.sent), 1)
+        self.assertEqual(self.reviews, [1])
+        self.tab.clock = 1120
+        self.assertIsNone(self.w.tick())                 # the agent's own ink is not a new request
+        self.assertEqual(self.reviews, [1])
+        self.assertEqual(self.tab.restarts, 0)
+
+    def test_without_pen_no_restart_while_writing(self):
+        self.w.pen = None
+        self.w.allow_restart = True
+        self.w.tick()
+        self.tab.clock = 1100
+        self.tab.write("new/p.rm", self.fix)
+        self.tab.clock = 1106
+        self.w.tick()
+        self.assertEqual(self.tab.restarts, 0)           # quiet 6 s < 120 s: no restart

@@ -11,11 +11,12 @@ from dataclasses import dataclass, field
 from . import layout, marks
 from .elements import Element
 
-VERDICT_COLOR = {"correct": "green", "wrong": "red", "hint": "blue", "unreadable": "gray"}
+VERDICT_COLOR = {"correct": "green", "wrong": "red", "hint": "blue", "unreadable": "gray", "help": "blue"}
 MARKS_FOR = {"correct": {"check", "underline"},
              "wrong": {"circle", "underline", "note"},
              "hint": {"question", "note"},
-             "unreadable": {"wavy"}}
+             "unreadable": {"wavy"},
+             "help": {"note"}}
 
 
 @dataclass
@@ -64,8 +65,9 @@ def validate(actions: list[Action], elements: list[Element], profile, *, deliver
             reason = f"contradicts the deterministic check ({overrides[el.id]})"
         elif a.mark == "note" and not a.text.strip():
             reason = "empty note"
-        elif a.mark == "note" and len(a.text) > profile.note_max_chars:
-            reason = f"note longer than {profile.note_max_chars} chars"
+        elif a.mark == "note" and len(a.text) > (profile.help_max_chars if a.verdict == "help"
+                                                   else profile.note_max_chars):
+            reason = "note too long"
         elif a.key(el) in delivered:
             reason = "already on the page"
         if reason:
@@ -73,7 +75,7 @@ def validate(actions: list[Action], elements: list[Element], profile, *, deliver
         else:
             out.accepted.append(a)
     # Small and incremental beats one big throw: at most N actions per round, errors first.
-    order = {"wrong": 0, "unreadable": 1, "hint": 2, "correct": 3}
+    order = {"help": 0, "wrong": 1, "unreadable": 2, "hint": 3, "correct": 4}
     out.accepted.sort(key=lambda a: order[a.verdict])
     for a in out.accepted[profile.max_actions:]:
         out.rejected.append((a, "over the per-round limit"))
@@ -93,9 +95,12 @@ def draw(actions: list[Action], elements: list[Element], strokes_on_page: list[d
         if a.mark == "note":
             # as tall as the student's own letters, within reason (real page: ~100 px letters)
             h = max(34.0, min(80.0, 0.6 * (el.bbox[3] - el.bbox[1])))
-            size = marks.text_size(a.text, h)
-            spot = layout.place(size, el.bbox, occ)
-            ink = marks.text(a.text, (spot["rect"][0], spot["rect"][1]), height=h, color=a.color)
+            lines = marks.wrap(a.text, 28)
+            w = max(marks.text_size(line, h)[0] for line in lines)
+            spot = layout.place((w, h * 1.5 * len(lines)), el.bbox, occ)
+            ink = []
+            for i, line in enumerate(lines):
+                ink += marks.text(line, (spot["rect"][0], spot["rect"][1] + i * h * 1.5), height=h, color=a.color)
             if not spot["adjacent"]:
                 r = spot["rect"]
                 ink += marks.arrow((r[0], (r[1] + r[3]) / 2), (el.bbox[2] + 6, (el.bbox[1] + el.bbox[3]) / 2),

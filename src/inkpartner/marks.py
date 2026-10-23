@@ -96,6 +96,17 @@ def text(s: str, origin, height: float = 34.0, color="blue"):
             for stroke in _font().strokes_for_text(s.translate(_FOLD)) if len(stroke) > 1]
 
 
+def wrap(s: str, width: int) -> list[str]:
+    lines, cur = [], ""
+    for word in s.split():
+        if cur and len(cur) + 1 + len(word) > width:
+            lines.append(cur)
+            cur = word
+        else:
+            cur = f"{cur} {word}".strip()
+    return lines + ([cur] if cur else [])
+
+
 def question(bbox, color="blue"):
     x0, y0, x1, y1 = bbox
     return text("?", (x1 + 14, y0 - 6), height=max(30.0, min(56.0, y1 - y0)), color=color)

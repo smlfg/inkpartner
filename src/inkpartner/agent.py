@@ -29,8 +29,9 @@ READ_SCHEMA = {
                 "box": {"type": "array", "items": {"type": "number"}},
                 "confidence": {"type": "number"},
                 "legible": {"type": "boolean"},
+                "group": {"type": "string"},
             },
-            "required": ["kind", "text", "latex", "box", "confidence", "legible"],
+            "required": ["kind", "text", "latex", "box", "confidence", "legible", "group"],
             "additionalProperties": False}},
     },
     "required": ["subject", "elements"],
@@ -41,9 +42,10 @@ READ_PROMPT = (
     "This is a page of handwriting from a paper tablet. List every element on it in reading order: "
     "lines of text or math, lines of code, and for drawings the nodes, edges, arrows, boxes and labels. "
     "For each element give: kind; text exactly as written, even if it is wrong (math as plain text with "
-    "^ for powers, e.g. 3(x+2)=15); latex for formulas, else empty; box = [x0, y0, x1, y1] as fractions "
+    "^ for powers, sqrt() for roots, ± where written, e.g. 3(x+2)=15); latex for formulas, else empty; box = [x0, y0, x1, y1] as fractions "
     "0..1 of the image width and height; confidence 0..1 in your reading; legible=false if you cannot "
-    "read it - never guess. Also say which subject the page is: math, code, diagram, pm or prose.")
+    "read it - never guess; group = the exercise the element belongs to (its number or label, e.g. "
+    "'4b'; the same value for all lines of one exercise, a new value where a new exercise starts). Also say which subject the page is: math, code, diagram, pm or prose.")
 
 JUDGE_SCHEMA = {
     "type": "object",
@@ -99,7 +101,8 @@ def read(client, strokes: list[dict], *, effort: str = "high") -> tuple[str, lis
                 fx0 + b[2] * (fx1 - fx0), fy0 + b[3] * (fy1 - fy0)]
         bbox = [min(bbox[0], bbox[2]), min(bbox[1], bbox[3]), max(bbox[0], bbox[2]), max(bbox[1], bbox[3])]
         els.append(Element(id=f"e{i}", kind=d["kind"], bbox=bbox, text=d["text"], latex=d["latex"],
-                           confidence=float(d["confidence"]), legible=bool(d["legible"])))
+                           confidence=float(d["confidence"]), legible=bool(d["legible"]),
+                           group=d.get("group", "")))
     return data["subject"], els
 
 

@@ -26,6 +26,8 @@ def main(argv=None) -> int:
     r.add_argument("page")
     r.add_argument("--subject", choices=["math", "code", "diagram", "pm", "prose"])
     r.add_argument("--elements", help="JSON list of elements instead of the model's reading")
+    r.add_argument("--proposals", help="JSON list of actions (+ 'speech') instead of the model's judgement; "
+                                       "with --elements no model is called (replay)")
     r.add_argument("-o", "--out", help="write page + agent layer to this .rm (the input stays untouched)")
     r.add_argument("--preview", help="PNG of the page with the agent's marks")
     a = ap.parse_args(argv)
@@ -44,8 +46,13 @@ def main(argv=None) -> int:
     kw = {"subject": a.subject}
     if a.elements:
         kw["elements"] = from_dicts(json.load(open(a.elements)))
-    import anthropic                     # judging always needs the model; reading only without --elements
-    kw["client"] = anthropic.Anthropic()
+    if a.proposals:
+        from .plan import Action
+        kw["proposals"] = [(Action(**{k: v for k, v in d.items() if k != "speech"}), d.get("speech", ""))
+                           for d in json.load(open(a.proposals))]
+    if not (a.elements and a.proposals):
+        import anthropic
+        kw["client"] = anthropic.Anthropic()
     result = review.run(strokes, **kw)
     if a.out:
         print(json.dumps(pagemod.append_strokes(a.page, result.strokes, a.out)), file=sys.stderr)

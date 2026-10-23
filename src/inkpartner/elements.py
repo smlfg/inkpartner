@@ -23,6 +23,7 @@ class Element:
     latex: str = ""                   # for formulas, when the reader could give it
     confidence: float = 0.0           # 0..1, the reader's own certainty
     legible: bool = True              # False: the reader could not read it - never green
+    group: str = ""                   # the exercise it belongs to ("4b"); math checks within a group
     stroke_ids: list[str] = field(default_factory=list)
 
     def __post_init__(self):

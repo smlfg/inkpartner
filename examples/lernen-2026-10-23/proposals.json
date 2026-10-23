@@ -1,0 +1,34 @@
+[
+ {
+  "element": "L4",
+  "verdict": "wrong",
+  "mark": "circle",
+  "text": "",
+  "why": "1 = 4/4, not 9/9 -> 13/4",
+  "speech": ""
+ },
+ {
+  "element": "L11",
+  "verdict": "wrong",
+  "mark": "circle",
+  "text": "",
+  "why": "root lost when substituting",
+  "speech": ""
+ },
+ {
+  "element": "L11",
+  "verdict": "wrong",
+  "mark": "note",
+  "text": "Wurzel vergessen?",
+  "why": "x = sqrt(13/4)-3/2 above",
+  "speech": "Vergleich die Lösung, die du einsetzt, mit der Zeile darüber."
+ },
+ {
+  "element": "L12",
+  "verdict": "hint",
+  "mark": "question",
+  "text": "",
+  "why": "same missing root inside 3(...)",
+  "speech": ""
+ }
+]

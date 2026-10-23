@@ -104,7 +104,8 @@ def append_strokes(path_in: str, strokes: list[dict], path_out: str) -> dict:
     from rmscene.scene_stream import SceneGroupItemBlock, SceneLineItemBlock, SceneTreeBlock, TreeNodeBlock
     from rmscene.tagged_block_common import HEADER_V6, CrdtId, LwwValue
 
-    original = open(path_in, "rb").read()
+    with open(path_in, "rb") as f:
+        original = f.read()
     tree = read_tree(io.BytesIO(original))
     used = [0]
 

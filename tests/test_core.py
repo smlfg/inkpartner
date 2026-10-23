@@ -18,9 +18,25 @@ def el(eid, text, y, **kw):
 
 
 class MathCheck(unittest.TestCase):
-    def test_distributive_error_and_follow_on_steps(self):
+    def test_distributive_error_and_lines_built_on_it(self):
         els = [el("a", "3(x+2)=15", 100), el("b", "3x+2=15", 200), el("c", "3x=13", 300), el("d", "x = 13/3", 400)]
-        self.assertEqual(mathcheck.check_steps(els), {"b": "wrong", "c": "correct", "d": "correct"})
+        self.assertEqual(mathcheck.check_steps(els), {"b": "wrong", "c": "wrong", "d": "wrong"})
+
+    def test_real_page_completing_the_square_with_restart(self):
+        # Samuel's page "Lernen", 2026-10-23, as read by eye
+        lines = ["x^2+3x=1", "x^2+3x+(3/2)^2 = 1+(3/2)^2", "(x+3/2)^2 = 1+9/4", "= 9/9+9/4 = 18/13",
+                 "x+3/2 = ±sqrt(18/13)", "1+9/4 = 4/4+9/4 = 13/4", "(x+3/2)^2 = 13/4",
+                 "x+3/2 = ±sqrt(13/4)", "x = sqrt(13/4)-3/2", "x = -sqrt(13/4)-3/2", "x = 13/4-3/2"]
+        els = [el(f"L{i}", t, 100 * i) for i, t in enumerate(lines, 1)]
+        v = mathcheck.check_steps(els)
+        self.assertEqual(v, {"L2": "correct", "L3": "correct", "L4": "wrong", "L5": "wrong", "L6": "correct",
+                             "L7": "correct", "L8": "correct", "L9": "correct", "L10": "correct",
+                             "L11": "wrong"})
+
+    def test_exercises_are_checked_separately(self):
+        els = [el("a", "2x=4", 100, group="1"), el("b", "x=2", 200, group="1"),
+               el("c", "x+1=5", 300, group="2"), el("d", "x=4", 400, group="2")]
+        self.assertEqual(mathcheck.check_steps(els), {"b": "correct", "d": "correct"})
 
     def test_correct_chain_and_unparsable_line(self):
         els = [el("a", "3(x+2)=15", 100), el("b", "3x+6=15", 200), el("c", "3x=9", 300), el("d", "also", 400)]
@@ -280,7 +296,7 @@ class Demo(unittest.TestCase):
         strokes, ink, rounds = demo.build()
         self.assertTrue(ink)
         math = rounds[0]
-        self.assertIn("m3", [a.element for a in math.accepted])     # sympy-proven step gets its check
+        self.assertNotIn("m3", [a.element for a in math.accepted])  # built on the error: never green
         self.assertNotIn("m4", [a.element for a in math.accepted])  # uncertain reading: no green
 
 

@@ -20,17 +20,19 @@ class Round:
 
 
 def run(strokes: list[dict], *, model=None, subject: str | None = None, elements: list[Element] | None = None,
-        proposals: list[tuple[plan.Action, str]] | None = None, delivered: set[str] = frozenset()) -> Round:
-    """`elements` / `proposals` can be given (tests, replays); otherwise the model provides them."""
+        proposals: list[tuple[plan.Action, str]] | None = None, delivered: set[str] = frozenset(),
+        reader=None, judge_model=None) -> Round:
+    """`elements` / `proposals` can be given (tests, replays); otherwise the model provides them.
+    `reader` (readers.get) replaces the default reading; `judge_model` judges instead of `model`."""
     from . import agent
     if elements is None:
-        guessed, elements = agent.read(model, strokes)
+        guessed, elements = reader(strokes) if reader else agent.read(model, strokes)
         subject = subject or guessed
     subject = subject or "math"
     profile = profiles.get(subject)
     checked = mathcheck.check_steps(elements) if profile.deterministic == "sympy" else {}
     if proposals is None:
-        proposals = agent.judge(model, strokes, elements, profile, checked=checked)
+        proposals = agent.judge(judge_model or model, strokes, elements, profile, checked=checked)
     # What the checker proved correct gets its check mark even if the model forgot it -
     # "bis hierhin fehlerfrei" should not depend on the model's mood.
     acted = {a.element for a, _ in proposals}

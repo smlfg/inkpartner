@@ -1,6 +1,7 @@
 """Which model reads and judges: local first, cloud only as a fallback.
 
     ollama:<model>    local on the Mac (default: ollama:qwen3.6:35b-a3b) - no key, no quota, no network
+    ollama-text:<m>   local text-only model (judging from the read elements, no image)
     gemini:<model>    Google REST API, GEMINI_API_KEY (free tier: ~20 requests per day and model)
     claude:<model>    Anthropic API, ANTHROPIC_API_KEY or `ant auth login`
 
@@ -40,9 +41,9 @@ def _loads(text: str) -> dict:
 
 
 class Ollama:
-    def __init__(self, model: str, host: str | None = None, timeout: float = 600):
-        self.name = "ollama:" + model
-        self.model, self.timeout = model, timeout
+    def __init__(self, model: str, host: str | None = None, timeout: float = 600, images: bool = True):
+        self.name = ("ollama:" if images else "ollama-text:") + model
+        self.model, self.timeout, self.images = model, timeout, images
         self.host = (host or os.environ.get("OLLAMA_HOST") or "http://localhost:11434").rstrip("/")
         if not self.host.startswith("http"):
             self.host = "http://" + self.host
@@ -51,7 +52,7 @@ class Ollama:
         body = {"model": self.model, "stream": False, "format": schema, "think": False,
                 "options": {"temperature": 0},
                 "messages": [{"role": "user", "content": prompt,
-                              "images": [base64.b64encode(i).decode() for i in images]}]}
+                              "images": [base64.b64encode(i).decode() for i in images] if self.images else []}]}
         r = _post(self.host + "/api/chat", body, {}, self.timeout)
         return _loads(r["message"]["content"])
 
@@ -124,6 +125,8 @@ def get(spec: str | None = None):
         try:
             if kind == "ollama":
                 out.append(Ollama(name))
+            elif kind == "ollama-text":                 # text-only judge: gets the elements, not the image
+                out.append(Ollama(name, images=False))
             elif kind == "gemini":
                 out.append(Gemini(name))
             elif kind == "claude":

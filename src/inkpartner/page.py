@@ -97,8 +97,29 @@ def _line_item(stroke: dict):
                    tool=si.Pen.FINELINER_2, points=pts, thickness_scale=1.0, starting_length=0.0)
 
 
-def append_strokes(path_in: str, strokes: list[dict], path_out: str) -> dict:
-    """path_out = original bytes + new blocks holding `strokes` in the agent layer."""
+def new_page(path_out: str) -> None:
+    """An empty page with one student layer ("Layer 1"), like a fresh notebook page."""
+    from rmscene import write_blocks, scene_items as si
+    from rmscene.crdt_sequence import CrdtSequenceItem
+    from rmscene.scene_stream import (AuthorIdsBlock, MigrationInfoBlock, PageInfoBlock, SceneGroupItemBlock,
+                                      SceneTreeBlock, TreeNodeBlock)
+    from rmscene.tagged_block_common import CrdtId, LwwValue
+    from uuid import UUID
+    blocks = [AuthorIdsBlock(author_uuids={1: UUID("6a1c0d2e-0000-4000-8000-a1ce0a6e47a2")}),
+              MigrationInfoBlock(migration_id=CrdtId(1, 1), is_device=True),
+              PageInfoBlock(loads_count=1, merges_count=0, text_chars_count=0, text_lines_count=0),
+              SceneTreeBlock(tree_id=CrdtId(0, 11), node_id=CrdtId(0, 0), is_update=True, parent_id=CrdtId(0, 1)),
+              TreeNodeBlock(si.Group(node_id=CrdtId(0, 1))),
+              TreeNodeBlock(si.Group(node_id=CrdtId(0, 11), label=LwwValue(timestamp=CrdtId(0, 12), value="Layer 1"))),
+              SceneGroupItemBlock(parent_id=CrdtId(0, 1), item=CrdtSequenceItem(
+                  item_id=CrdtId(0, 13), left_id=CrdtId(0, 0), right_id=CrdtId(0, 0), deleted_length=0,
+                  value=CrdtId(0, 11)))]
+    with open(path_out, "wb") as f:
+        write_blocks(f, blocks)
+
+
+def append_strokes(path_in: str, strokes: list[dict], path_out: str, *, layer: str = AGENT_LAYER) -> dict:
+    """path_out = original bytes + new blocks holding `strokes` in `layer` (default: the agent layer)."""
     from rmscene import read_blocks, read_tree, write_blocks, scene_items as si
     from rmscene.crdt_sequence import CrdtSequenceItem
     from rmscene.scene_stream import SceneGroupItemBlock, SceneLineItemBlock, SceneTreeBlock, TreeNodeBlock
@@ -136,16 +157,16 @@ def append_strokes(path_in: str, strokes: list[dict], path_out: str) -> dict:
         counter += 1
         return CrdtId(1, counter - 1)
 
-    blocks, layer = [], None
+    blocks, layer_name, layer = [], layer, None
     for child in tree.root.children.values():
-        if isinstance(child, si.Group) and child.label and child.label.value == AGENT_LAYER:
+        if isinstance(child, si.Group) and child.label and child.label.value == layer_name:
             layer = child
     if layer is None:
         layer_id = new_id()
         root_keys = list(tree.root.children.keys())
         blocks += [
             SceneTreeBlock(tree_id=layer_id, node_id=CrdtId(0, 0), is_update=True, parent_id=CrdtId(0, 1)),
-            TreeNodeBlock(si.Group(node_id=layer_id, label=LwwValue(timestamp=new_id(), value=AGENT_LAYER))),
+            TreeNodeBlock(si.Group(node_id=layer_id, label=LwwValue(timestamp=new_id(), value=layer_name))),
             SceneGroupItemBlock(parent_id=CrdtId(0, 1), item=CrdtSequenceItem(
                 item_id=new_id(), left_id=root_keys[-1] if root_keys else CrdtId(0, 0),
                 right_id=CrdtId(0, 0), deleted_length=0, value=layer_id)),

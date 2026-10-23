@@ -200,7 +200,8 @@ class PageState:
 class Watcher:
     def __init__(self, tablet: Tablet, model, *, subject=None, settle_s=4.0, restart_quiet_s=1800.0,
                  allow_restart=False, recent_s=600.0, pen=True, log=print, state_file=None,
-                 speak=None, speech_allowed=False, pen_rest_s=900.0, restart_gap_s=3600.0):
+                 speak=None, speech_allowed=False, pen_rest_s=900.0, restart_gap_s=3600.0,
+                 reader=None, judge_model=None):
         self.tablet, self.model, self.subject = tablet, model, subject
         self.settle_s, self.restart_quiet_s, self.allow_restart = settle_s, restart_quiet_s, allow_restart
         self.recent_s = recent_s
@@ -216,6 +217,7 @@ class Watcher:
             self.pen = pen
         self.verify_tries, self.verify_wait_s = 5, 2.0
         self.speak, self.speech_allowed = speak, speech_allowed
+        self.reader, self.judge_model = reader, judge_model
         self.pen_failures, self.pen_rest_until, self.pen_rest_s = 0, 0.0, pen_rest_s
         self.restart_gap_s, self.last_restart = restart_gap_s, -1e18
         self.state_file = Path(state_file or Path.home() / ".cache/inkpartner/state.json")
@@ -277,7 +279,9 @@ class Watcher:
             Path(src).write_bytes(data)
             strokes = pagemod.read_strokes(src)
             t0 = time.time()
-            r = review.run(strokes, model=self.model, subject=self.subject, delivered=st.delivered)
+            r = review.run(strokes, model=self.model, subject=self.subject, delivered=st.delivered,
+                           reader=self.reader, judge_model=self.judge_model)
+            self.last_round = r
             self.log(f"{self.tablet.name(rel)}: {r.subject}, {len(r.elements)} elements, "
                      f"{len(r.accepted)} marks in {time.time() - t0:.1f}s via {getattr(self.model, 'used', '?')}")
             for a in r.accepted:

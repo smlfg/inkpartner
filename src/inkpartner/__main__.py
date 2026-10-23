@@ -45,7 +45,18 @@ def main(argv=None) -> int:
     w.add_argument("--trust-viewport", action="store_true",
                    help="you state the page is shown unzoomed (calibrated); without it no pen events are sent")
     w.add_argument("--once", action="store_true", help="stop after the first review")
+    sm = sub.add_parser("sim", help="simulated student + simulated tablet + real agent; compare readers/models")
+    sm.add_argument("configs", nargs="+", help="READER@JUDGE, e.g. vlm:ollama:qwen3.6:35b-a3b@ollama:qwen3.6:35b-a3b, "
+                                              "lines:ollama:gemma4:26b@..., ocr:apple@ollama-text:gpt-oss:20b")
+    sm.add_argument("--scenario", action="append", help="only these scenarios (default: all)")
+    sm.add_argument("--out", default="sim-out")
     a = ap.parse_args(argv)
+
+    if a.cmd == "sim":
+        from . import sim
+        summary = sim.main(a.configs, a.scenario, a.out, log=lambda *x: print(*x, flush=True))
+        print(json.dumps(summary, indent=1))
+        return 0
 
     if a.cmd == "watch":
         from . import watch

@@ -630,3 +630,52 @@ class PenChannelIsGuarded(unittest.TestCase):
         with self.assertRaises(guards.GuardError):
             pen.deliver(marks.underline([100, 100, 200, 120]), "doc/page.rm")
         self.assertFalse(any("/dev/input" in c for c in calls))
+
+
+class Simulation(unittest.TestCase):
+    """The loop end to end with a fake model: student writes, watcher reacts, scoring is right."""
+
+    def _run(self, verdict):
+        from inkpartner import sim, models, readers
+        from inkpartner.elements import Element
+
+        def reader(strokes):        # reads the true text at the true place
+            lines = readers.cluster_lines([s for s in strokes if s.get("author") == "user"])
+            texts = ["3(x+2)=15", "3x+2=15"]
+            return "math", [Element(f"e{i}", "formula", marks.bbox_of(l), texts[i], confidence=0.95)
+                            for i, l in enumerate(lines)]
+
+        class Judge:
+            name = used = "fake"
+
+            def json(self, images, prompt, schema):
+                if '"e1"' not in prompt:
+                    return {"actions": []}
+                return {"actions": [{"element": "e1", "verdict": verdict,
+                                     "mark": "circle" if verdict == "wrong" else "check",
+                                     "text": "", "why": "", "speech": ""}]}
+        orig_m, orig_r = models.get, readers.get
+        sc = sim.Scenario("t", "math", [sim.Line("3(x+2)=15", "ok"), sim.Line("3x+2=15", "wrong")])
+        try:
+            models.get = lambda spec=None: Judge()
+            readers.get = lambda spec: reader
+            return sim.run_scenario(sc, "vlm:fake", "fake", tempfile.mkdtemp(), log=lambda *a: None)
+        finally:
+            models.get, readers.get = orig_m, orig_r
+
+    def test_loop_scores_a_red_mark_on_the_wrong_step_as_hit(self):
+        run = self._run("wrong")
+        self.assertEqual([l["outcome"] for l in run.lines], ["ok", "hit"])
+        self.assertEqual(len(run.rounds), 2)              # the agent reacted after each line
+
+    def test_a_false_green_cannot_even_reach_the_page(self):
+        run = self._run("correct")                         # sympy says wrong -> the rules reject the green
+        self.assertEqual([l["outcome"] for l in run.lines], ["ok", "miss"])
+
+    def test_handwriting_raises_exponents_and_slants(self):
+        import random
+        from inkpartner import sim
+        ink = sim.handwrite("x^2", (100, 100), 80, random.Random(1))
+        ys = [min(p[1] for p in s["points"]) for s in ink]
+        self.assertLess(min(ys), 100)                    # the exponent sits above the line
+        self.assertTrue(all(s["author"] == "user" for s in ink))

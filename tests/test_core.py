@@ -436,3 +436,60 @@ class WatcherTest(unittest.TestCase):
         self.tab.clock = 1106
         self.w.tick()
         self.assertEqual(self.tab.restarts, 0)           # quiet 6 s < 120 s: no restart
+
+
+class Escalation(WatcherTest):
+    def test_pen_fails_then_file_path_once_the_page_is_quiet(self):
+        class DeadPen:
+            calls = 0
+
+            def deliver(self, strokes):        # firmware update: events sent, nothing drawn
+                DeadPen.calls += 1
+                return {"status": "delivered_unconfirmed"}
+        self.w.pen = DeadPen()
+        self.w.allow_restart = True
+        self.w.restart_quiet_s = 60
+        self.w.tick()
+        self.tab.clock = 1100
+        self.tab.write("new/p.rm", self.fix)
+        self.tab.clock = 1106
+        self.w.tick()                                    # pen fails, verified missing -> pending
+        st = self.w.pages["new/p.rm"]
+        self.assertIsNotNone(st.pending)
+        self.assertEqual(self.tab.restarts, 0)           # student just wrote: no restart
+        self.tab.clock = 1170
+        self.w.tick()                                    # quiet 70 s -> file path
+        self.assertEqual(self.tab.restarts, 1)
+        self.assertIsNone(st.pending)
+        self.assertTrue(st.delivered)
+
+    def test_pending_feedback_is_dropped_when_the_student_changes_the_page(self):
+        class DeadPen:
+            def deliver(self, strokes):
+                return {"status": "delivered_unconfirmed"}
+        self.w.pen = DeadPen()
+        self.w.allow_restart = True
+        self.w.tick()
+        self.tab.clock = 1100
+        self.tab.write("new/p.rm", self.fix)
+        self.tab.clock = 1106
+        self.w.tick()
+        self.tab.clock = 1150
+        self.tab.write("new/p.rm", open(os.path.join(HERE, "fixtures", "Normal_A_stroke_2_layers_v3.3.2.rm"), "rb").read())
+        self.w.tick()
+        self.assertIsNone(self.w.pages["new/p.rm"].pending)
+        self.assertEqual(self.tab.restarts, 0)
+
+    def test_pen_rests_after_two_failures(self):
+        class DeadPen:
+            def deliver(self, strokes):
+                return {"status": "delivered_unconfirmed"}
+        self.w.pen = DeadPen()
+        st = page.read_strokes(FIX)
+        for _ in range(2):
+            self.w.pages["new/p.rm"] = self.watch.PageState((0, 0), 1000)
+            self.tab.files["new/p.rm"] = self.fix
+            self.w.deliver("new/p.rm", self.w.pages["new/p.rm"], FIX, self.fix, "x",
+                           review.run(st, subject="math", elements=[el("q", "x=?", 100)],
+                                      proposals=[(plan.Action("q", "help", "note", text="Hinweis"), "")]), 1000)
+        self.assertGreater(self.w.pen_rest_until, 1000)

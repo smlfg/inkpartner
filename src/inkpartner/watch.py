@@ -117,11 +117,13 @@ class PageState:
     reviewed_sha: str = ""
     own_sha: str = ""                                   # what the agent itself left on the page
     delivered: set[str] = field(default_factory=set)
+    pending: dict | None = None                         # feedback that could not be written yet
 
 
 class Watcher:
     def __init__(self, tablet: Tablet, model, *, subject=None, settle_s=4.0, restart_quiet_s=120.0,
-                 allow_restart=False, recent_s=600.0, pen=True, log=print, state_file=None):
+                 allow_restart=False, recent_s=600.0, pen=True, log=print, state_file=None,
+                 speak=None, speech_allowed=False, pen_rest_s=900.0):
         self.tablet, self.model, self.subject = tablet, model, subject
         self.settle_s, self.restart_quiet_s, self.allow_restart = settle_s, restart_quiet_s, allow_restart
         self.recent_s = recent_s
@@ -136,6 +138,8 @@ class Watcher:
         elif pen:
             self.pen = pen
         self.verify_tries, self.verify_wait_s = 5, 2.0
+        self.speak, self.speech_allowed = speak, speech_allowed
+        self.pen_failures, self.pen_rest_until, self.pen_rest_s = 0, 0.0, pen_rest_s
         self.state_file = Path(state_file or Path.home() / ".cache/inkpartner/state.json")
         self._load()
 
@@ -174,6 +178,10 @@ class Watcher:
                     self.log(f"new page: {self.tablet.name(rel)} ({rel})")
             elif st.stamp != stamp:
                 st.stamp, st.last_change = stamp, now
+        # escalation: feedback that could not be written waits here until a safe path is open
+        for rel, st in self.pages.items():
+            if st.pending:
+                self.retry_pending(rel, st, now)
         # the page that changed last and has rested for settle_s is reviewed
         active = max(self.pages.items(), key=lambda kv: kv[1].last_change, default=(None, None))
         rel, st = active
@@ -212,7 +220,12 @@ class Watcher:
             return r
 
     def deliver(self, rel, st, src, data, h, r, now) -> dict:
-        if self.pen is not None:
+        """Escalation (Codex session 2026-10-23): pen -> verify -> on failure rest the pen path and keep
+        the feedback pending -> file path once the page is quiet (never while writing) -> speech if
+        allowed -> otherwise wait and retry later. Never counted as done unless read back."""
+        result = {}
+        missing = list(r.strokes)
+        if self.pen is not None and now >= self.pen_rest_until:
             sent = self.pen.deliver(r.strokes)
             before = pagemod.read_strokes(src)
             states, after_bytes = {}, data
@@ -228,24 +241,60 @@ class Watcher:
                     break
             st.own_sha = sha(after_bytes)
             st.delivered |= {k for k, v in states.items() if v == "confirmed"}
-            return {"path": "pen", "sent": sent.get("status"), "verified": states}
+            result = {"path": "pen", "sent": sent.get("status"), "verified": states}
+            if all(v == "confirmed" for v in states.values()):
+                self.pen_failures = 0
+                return result
+            # only what is surely missing may be written again; 'unclear' may already be on the page
+            missing = [s for s in r.strokes if states.get(s["action"]) == "missing"]
+            if all(v == "missing" for v in states.values()):
+                self.pen_failures += 1
+                if self.pen_failures >= 2:
+                    self.pen_rest_until = now + self.pen_rest_s
+                    self.log(f"  pen path failed {self.pen_failures}x in a row - resting it for "
+                             f"{self.pen_rest_s / 60:.0f} min")
+        if missing:
+            speech = " ".join(v for k, v in r.speech.items() if any(s["action"] == k for s in missing))
+            st.pending = {"strokes": missing, "base_sha": sha(self.tablet.fetch(rel)), "speech": speech,
+                          "since": now}
+            result["pending"] = len({s["action"] for s in missing})
+            self.retry_pending(rel, st, now)
+        return result
+
+    def retry_pending(self, rel, st, now):
+        p = st.pending
+        current = self.tablet.fetch(rel)
+        if sha(current) != p["base_sha"]:
+            self.log(f"  {self.tablet.name(rel)}: page changed since - pending feedback dropped (stale)")
+            st.pending = None
+            st.reviewed_sha = ""                          # look at the page again
+            return
         quiet = now - st.last_change
         if self.allow_restart and quiet >= self.restart_quiet_s:
             with tempfile.TemporaryDirectory() as tmp:
-                out = os.path.join(tmp, "out.rm")
-                pagemod.append_strokes(src, r.strokes, out)
+                src, out = os.path.join(tmp, "in.rm"), os.path.join(tmp, "out.rm")
+                Path(src).write_bytes(current)
+                pagemod.append_strokes(src, p["strokes"], out)
                 new = Path(out).read_bytes()
-            self.tablet.write_file_and_restart(rel, new, h)
+            self.tablet.write_file_and_restart(rel, new, p["base_sha"])
             back = self.tablet.fetch(rel)
             st.own_sha = sha(back)
-            ok = back == new
-            if ok:
-                st.delivered |= {s["action"] for s in r.strokes}
-            return {"path": "file+restart", "verified": "confirmed" if ok else "missing"}
-        return {"path": None, "pending": f"page quiet {quiet:.0f}s < {self.restart_quiet_s:.0f}s or restart not allowed"}
+            if back == new:
+                st.delivered |= {s["action"] for s in p["strokes"]}
+                st.pending = None
+                self.log(f"  {self.tablet.name(rel)}: written via file path (page quiet {quiet:.0f}s), verified")
+            else:
+                self.log(f"  {self.tablet.name(rel)}: file path did not verify - stays pending")
+            self._save()
+            return
+        if p.get("speech") and self.speak and self.speech_allowed and not p.get("spoken"):
+            self.speak(p["speech"])
+            p["spoken"] = True
+            self.log("  spoken while writing is not possible")
 
 
 def run(host="remarkable", model=None, subject=None, interval_s=3.0, once=False, **kw):
+    """Loop forever (or until the first review with --once)."""
     from . import models
     w = Watcher(Tablet(host), models.get(model), subject=subject, **kw)
     w.log(f"watching {host} every {interval_s}s with {w.model.name}; pen path: {'yes' if w.pen else 'no'}")

@@ -102,9 +102,14 @@ def draw(actions: list[Action], elements: list[Element], strokes_on_page: list[d
             for i, line in enumerate(lines):
                 ink += marks.text(line, (spot["rect"][0], spot["rect"][1] + i * h * 1.5), height=h, color=a.color)
             if not spot["adjacent"]:
-                r = spot["rect"]
-                ink += marks.arrow((r[0], (r[1] + r[3]) / 2), (el.bbox[2] + 6, (el.bbox[1] + el.bbox[3]) / 2),
-                                   color=a.color)
+                # from the edge of the note that faces the element to the edge of the element that
+                # faces the note - an arrow that starts inside the note crosses its own text
+                r, b = spot["rect"], el.bbox
+                c_el = ((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)
+                c_note = ((r[0] + r[2]) / 2, (r[1] + r[3]) / 2)
+                start = (min(max(c_el[0], r[0]), r[2]), min(max(c_el[1], r[1] - 8), r[3] + 8))
+                end = (min(max(c_note[0], b[0] - 8), b[2] + 8), min(max(c_note[1], b[1] - 8), b[3] + 8))
+                ink += marks.arrow(start, end, color=a.color)
         else:
             ink = getattr(marks, a.mark)(el.bbox, color=a.color)
         for s in ink:

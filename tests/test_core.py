@@ -737,3 +737,29 @@ class TwoReadings(unittest.TestCase):
         els = [Element("u", "line", [100, 100, 300, 150], "", confidence=0.1, legible=False)]
         r = review.run([], subject="math", elements=els, proposals=[])
         self.assertEqual([(a.verdict, a.mark) for a in r.accepted], [("unreadable", "wavy")])
+
+
+class ViewportTest(unittest.TestCase):
+    def test_recovers_zoom_and_scroll_from_a_screenshot(self):
+        """Make a fake device thumbnail of a zoomed, scrolled view and get the transform back."""
+        import io, random
+        from PIL import Image, ImageDraw
+        from inkpartner import viewport, sim
+        rng = random.Random(3)
+        strokes = []
+        for i, t in enumerate(["(a+b)^2 = a^2+2ab+b^2", "(3x+4y)^3 =", "a^3+3a^2b+3ab^2+b^3", "z^4 + x^4"]):
+            strokes += sim.handwrite(t, (150, 200 + i * 260), 90, rng)
+        true = viewport.Viewport(1.4, -150.0, -120.0, 1.0)
+        img = Image.new("RGB", (384, 512), "white")
+        d = ImageDraw.Draw(img)
+        k = 384 / 1620
+        for x in range(0, 384, 12):
+            d.line([(x, 0), (x, 512)], fill=(215, 215, 215))       # grid paper like the device
+        for s in strokes:
+            d.line([((p[0] * 1.4 - 150) * k, (p[1] * 1.4 - 120) * k) for p in s["points"]], fill=(20, 20, 20), width=2)
+        buf = io.BytesIO(); img.save(buf, "PNG")
+        v = viewport.estimate(strokes, buf.getvalue())
+        self.assertAlmostEqual(v.scale, 1.4, delta=0.03)
+        self.assertLess(abs(v.ox - true.ox), 40)
+        self.assertLess(abs(v.oy - true.oy), 40)
+        self.assertGreater(v.score, 0.6)

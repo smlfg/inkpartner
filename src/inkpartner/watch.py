@@ -28,7 +28,6 @@ import json
 import os
 import shlex
 import subprocess
-import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -38,8 +37,6 @@ from . import page as pagemod
 from . import review, verify
 
 XOCHITL = "/home/root/.local/share/remarkable/xochitl"
-ALGEBRA_AGENT_SRC = os.environ.get("ALGEBRA_AGENT_SRC",
-                                   str(Path.home() / "Projects/01_WORK/Remarkable/algebra-agent/src"))
 CALIBRATION = Path(os.environ.get("PENECHO_LIVE_CALIBRATION",
                                   Path.home() / ".config/penecho/live_viewport.json"))
 
@@ -95,21 +92,26 @@ class Tablet:
 
 
 class PenChannel:
-    """V-Pen from algebra-agent (reused, not copied). Strokes in page pixels."""
+    """Pen events into the open page (idea and device facts from algebra-agent's V-Pen; the event
+    stream itself is penstream.py, rebuilt after firmware 20261009 stopped accepting the old one).
+    Strokes in page pixels; the viewport calibration maps them to the screen."""
 
-    def __init__(self, tablet: Tablet):
-        sys.path.insert(0, ALGEBRA_AGENT_SRC)
-        from algebra_agent import inject           # noqa: imported from the sibling repo
-        self.inject = inject
+    def __init__(self, tablet: Tablet, device: str | None = None):
         self.tablet = tablet
         self.cal = json.loads(CALIBRATION.read_text())   # no calibration -> no pen path (raises)
+        self.device = device or self.cal.get("device", "event2")
 
     def deliver(self, strokes: list[dict]) -> dict:
+        from . import penstream
         sx, sy = float(self.cal["scale"]), float(self.cal.get("scale_y", self.cal["scale"]))
         ox, oy = float(self.cal["offset_x"]), float(self.cal["offset_y"])
-        screen = [{**s, "points": [[p[0] * sx + ox, p[1] * sy + oy] + p[2:] for p in s["points"]]}
+        screen = [{"points": penstream.densify([[p[0] * sx + ox, p[1] * sy + oy] for p in s["points"]])}
                   for s in strokes]
-        return self.inject.send(screen, host=self.tablet.host, device=self.cal.get("device", "event2"))
+        stream = penstream.build(screen)
+        # `cat` reports EINVAL on this device even when every event arrives (algebra-agent, 20.10.):
+        # the exit code says nothing - only reading the page back does.
+        self.tablet.ssh(f"cat > /dev/input/{shlex.quote(self.device)}", data=stream, timeout=60)
+        return {"status": "sent_unverified", "bytes": len(stream), "strokes": len(screen)}
 
 
 @dataclass

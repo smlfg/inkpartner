@@ -516,3 +516,23 @@ class RestartIsLastResort(WatcherTest):
             s_["action"] = "k"
         self.w.retry_pending("new/p.rm", st, 2000)        # 1000 s after the last restart: no
         self.assertEqual(self.tab.restarts, 0)
+
+
+class PenStream(unittest.TestCase):
+    def test_every_stroke_touches_down_and_up_like_the_real_pen(self):
+        import struct
+        from inkpartner import penstream
+        data = penstream.build([{"points": [[100, 100], [200, 100]]}, {"points": [[100, 200], [100, 300]]}], start=0)
+        ev = [struct.unpack(penstream.FMT, data[i:i + 24]) for i in range(0, len(data), 24)]
+        keys = [(c, v) for _, _, t, c, v in ev if t == penstream.EV_KEY]
+        self.assertEqual(keys, [(320, 1), (330, 1), (330, 0), (320, 0)] * 2)
+        times = [s * 1_000_000 + u for s, u, *_ in ev]
+        self.assertEqual(times, sorted(times))
+        xs = [v for _, _, t, c, v in ev if t == penstream.EV_ABS and c == penstream.ABS_X]
+        self.assertEqual(min(xs), round(100 / 1620 * 11180))
+
+    def test_densify_fills_long_segments(self):
+        from inkpartner import penstream
+        pts = penstream.densify([[0, 0], [100, 0]], step=4)
+        self.assertGreaterEqual(len(pts), 25)
+        self.assertEqual(pts[-1], [100, 0])

@@ -33,6 +33,10 @@ class MathCheck(unittest.TestCase):
                              "L7": "correct", "L8": "correct", "L9": "correct", "L10": "correct",
                              "L11": "wrong"})
 
+    def test_latex_braces_from_the_model(self):
+        els = [el("a", "(z+x)^2", 100), el("b", "z^{2}+2zx+x^{2}", 200)]
+        self.assertEqual(mathcheck.check_steps(els), {"b": "correct"})
+
     def test_exercises_are_checked_separately(self):
         els = [el("a", "2x=4", 100, group="1"), el("b", "x=2", 200, group="1"),
                el("c", "x+1=5", 300, group="2"), el("d", "x=4", 400, group="2")]

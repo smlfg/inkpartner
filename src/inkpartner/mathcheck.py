@@ -25,7 +25,8 @@ def _parse(side: str):
     from sympy.parsing.sympy_parser import (parse_expr, standard_transformations,
                                             implicit_multiplication_application, convert_xor)
     s = (side.replace("·", "*").replace("×", "*").replace("−", "-").replace(":", "/")
-         .replace(",", ".").replace("√", "sqrt"))
+         .replace(",", ".").replace("√", "sqrt").replace("{", "(").replace("}", ")")
+         .replace("\\cdot", "*").replace("\\sqrt", "sqrt"))
     s = re.sub(r"\s+", "", s)
     if not s:
         raise ValueError("empty")

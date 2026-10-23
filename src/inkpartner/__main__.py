@@ -42,13 +42,16 @@ def main(argv=None) -> int:
     w.add_argument("--restart-quiet", type=float, default=1800.0,
                    help="seconds without a change on any page before a restart may happen")
     w.add_argument("--no-pen", action="store_true", help="do not use the V-Pen path")
+    w.add_argument("--trust-viewport", action="store_true",
+                   help="you state the page is shown unzoomed (calibrated); without it no pen events are sent")
     w.add_argument("--once", action="store_true", help="stop after the first review")
     a = ap.parse_args(argv)
 
     if a.cmd == "watch":
         from . import watch
         watch.run(a.host, a.model, a.subject, a.interval, a.once, settle_s=a.settle,
-                  allow_restart=a.allow_restart, restart_quiet_s=a.restart_quiet, pen=not a.no_pen)
+                  allow_restart=a.allow_restart, restart_quiet_s=a.restart_quiet, pen=not a.no_pen,
+                  trust_viewport=a.trust_viewport)
         return 0
 
     if a.cmd == "demo":

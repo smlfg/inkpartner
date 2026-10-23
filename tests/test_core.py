@@ -354,8 +354,14 @@ class FakeTabletFS:
     """A tablet as a dict of page files, with its own clock."""
 
     def __init__(self, files):
+        from inkpartner.guards import Guard, Limits
         self.files, self.clock, self.mtimes, self.restarts = dict(files), 1000, {k: 0 for k in files}, 0
         self.host = "fake"
+        self.guard = Guard(os.path.join(tempfile.mkdtemp(), "STOP"),
+                           Limits(restart_quiet_s=60, restart_gap_s=0), log=lambda *a: None)
+        self.monitor = None
+        self.allow_restart = True
+        self.pen_idle = 10_000
 
     def write(self, rel, data):
         self.files[rel] = data
@@ -370,7 +376,9 @@ class FakeTabletFS:
     def name(self, rel):
         return rel.split("/")[0]
 
-    def write_file_and_restart(self, rel, data, expected):
+    def write_file_and_restart(self, rel, data, expected, *, quiet_s):
+        self.guard.check_prefix(self.files[rel], data)
+        self.guard.before_restart(allowed=self.allow_restart, quiet_s=quiet_s, pen_idle_s=self.pen_idle)
         self.restarts += 1
         self.files[rel] = data
 
@@ -399,7 +407,7 @@ class WatcherTest(unittest.TestCase):
             def __init__(self, tab):
                 self.tab, self.sent = tab, []
 
-            def deliver(self, strokes):          # the tablet saves the injected ink into the page
+            def deliver(self, strokes, rel):     # the tablet saves the injected ink into the page
                 self.sent.append(strokes)
                 tmp = tempfile.mkdtemp()
                 src, out = os.path.join(tmp, "a.rm"), os.path.join(tmp, "b.rm")
@@ -443,7 +451,7 @@ class Escalation(WatcherTest):
         class DeadPen:
             calls = 0
 
-            def deliver(self, strokes):        # firmware update: events sent, nothing drawn
+            def deliver(self, strokes, rel):   # firmware update: events sent, nothing drawn
                 DeadPen.calls += 1
                 return {"status": "delivered_unconfirmed"}
         self.w.pen = DeadPen()
@@ -466,7 +474,7 @@ class Escalation(WatcherTest):
 
     def test_pending_feedback_is_dropped_when_the_student_changes_the_page(self):
         class DeadPen:
-            def deliver(self, strokes):
+            def deliver(self, strokes, rel):
                 return {"status": "delivered_unconfirmed"}
         self.w.pen = DeadPen()
         self.w.allow_restart = True
@@ -483,7 +491,7 @@ class Escalation(WatcherTest):
 
     def test_pen_rests_after_two_failures(self):
         class DeadPen:
-            def deliver(self, strokes):
+            def deliver(self, strokes, rel):
                 return {"status": "delivered_unconfirmed"}
         self.w.pen = DeadPen()
         st = page.read_strokes(FIX)
@@ -536,3 +544,89 @@ class PenStream(unittest.TestCase):
         pts = penstream.densify([[0, 0], [100, 0]], step=4)
         self.assertGreaterEqual(len(pts), 25)
         self.assertEqual(pts[-1], [100, 0])
+
+
+class Guards(unittest.TestCase):
+    def setUp(self):
+        from inkpartner import guards
+        self.g = guards
+        self.dir = tempfile.mkdtemp()
+        self.t = [10_000.0]
+        self.guard = guards.Guard(os.path.join(self.dir, "STOP"), clock=lambda: self.t[0], log=lambda *a: None)
+
+    def pen_ok(self, **kw):
+        args = dict(target_doc="d", target_page="p", open_page=("d", "p"), pen_idle_s=60, viewport_ok=True)
+        args.update(kw)
+        self.guard.before_pen(**args)
+
+    def test_pen_refused_in_every_unsafe_situation(self):
+        for kw, rule in [({"open_page": ("other", "p")}, "R-OPEN"), ({"open_page": None}, "R-OPEN"),
+                         ({"pen_idle_s": 0.5}, "R-PEN-NEAR"), ({"pen_idle_s": None}, "R-PEN-NEAR"),
+                         ({"viewport_ok": False}, "R-VIEWPORT")]:
+            with self.assertRaises(self.g.GuardError) as c:
+                self.pen_ok(**kw)
+            self.assertIn(rule, str(c.exception))
+
+    def test_pen_rate_limit(self):
+        for _ in range(4):
+            self.pen_ok()
+        with self.assertRaises(self.g.GuardError):
+            self.pen_ok()
+
+    def test_restart_refused_by_default_and_while_active(self):
+        G = self.g.GuardError
+        with self.assertRaises(G):
+            self.guard.before_restart(allowed=False, quiet_s=1e9, pen_idle_s=1e9)
+        with self.assertRaises(G):                                   # the case of 2026-10-23: 235 s quiet
+            self.guard.before_restart(allowed=True, quiet_s=235, pen_idle_s=1e9)
+        with self.assertRaises(G):                                   # page quiet, but the pen was used
+            self.guard.before_restart(allowed=True, quiet_s=1e9, pen_idle_s=30)
+        self.guard.before_restart(allowed=True, quiet_s=1e9, pen_idle_s=1e9)
+        with self.assertRaises(G):                                   # once per hour
+            self.guard.before_restart(allowed=True, quiet_s=1e9, pen_idle_s=1e9)
+
+    def test_garbage_in_the_students_layer_trips_the_kill_switch(self):
+        expected = marks.underline([300, 1000, 700, 1000])
+        garbage = [{"points": [[100, 720, .5], [320, 1190, .5]], "author": "user"}]   # like 2026-10-23
+        with self.assertRaises(self.g.Stopped):
+            self.guard.after_pen(before=[], after=garbage, expected=expected, real_pen_during=False)
+        self.assertTrue(os.path.exists(os.path.join(self.dir, "STOP")))
+        with self.assertRaises(self.g.Stopped):                     # every later write is blocked
+            self.pen_ok()
+        with self.assertRaises(self.g.Stopped):
+            self.guard.before_restart(allowed=True, quiet_s=1e9, pen_idle_s=1e9)
+
+    def test_own_ink_and_the_students_own_writing_are_not_garbage(self):
+        expected = marks.underline([300, 1000, 700, 1000])
+        ours = [{**s, "author": "user", "color": "green_2"} for s in expected]
+        self.assertEqual(self.guard.after_pen(before=[], after=ours, expected=expected, real_pen_during=False), [])
+        theirs = [{"points": [[100, 1500, .5], [200, 1500, .5]], "author": "user"}]
+        self.guard.after_pen(before=[], after=theirs, expected=expected, real_pen_during=True)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "STOP")))
+
+    def test_file_may_only_grow(self):
+        self.guard.check_prefix(b"abc", b"abcdef")
+        with self.assertRaises(self.g.Stopped):
+            self.guard.check_prefix(b"abc", b"abXdef")
+
+
+class PenChannelIsGuarded(unittest.TestCase):
+    def test_no_ssh_call_when_the_target_page_is_not_open(self):
+        from inkpartner import watch, guards
+        calls = []
+
+        class T(watch.Tablet):
+            def ssh(self, cmd, data=None, timeout=30):
+                calls.append(cmd)
+                return b""
+
+            def open_page(self):
+                return ("other-doc", "other-page")
+        tab = T("fake", guard=guards.Guard(os.path.join(tempfile.mkdtemp(), "STOP"), log=lambda *a: None),
+                trust_viewport=True)
+        pen = watch.PenChannel.__new__(watch.PenChannel)
+        pen.tablet, pen.device = tab, "event2"
+        pen.cal = {"scale": 1, "offset_x": 0, "offset_y": 0}
+        with self.assertRaises(guards.GuardError):
+            pen.deliver(marks.underline([100, 100, 200, 120]), "doc/page.rm")
+        self.assertFalse(any("/dev/input" in c for c in calls))

@@ -49,8 +49,14 @@ class Tablet:
     """Everything that touches the tablet, over SSH. Reads are free; writes are two: pen events into
     /dev/input/<pen> (pen path) and one page file + restart (file path)."""
 
-    def __init__(self, host: str = "remarkable"):
+    def __init__(self, host: str = "remarkable", guard=None, monitor=None, trust_viewport=False,
+                 allow_restart=False):
+        from .guards import Guard
         self.host = host
+        self.guard = guard or Guard(Path.home() / ".cache/inkpartner/STOP")
+        self.monitor = monitor
+        self.trust_viewport = trust_viewport          # a human states the page is unzoomed (no detection yet)
+        self.allow_restart = allow_restart
 
     def ssh(self, cmd: str, data: bytes | None = None, timeout: float = 30) -> bytes:
         r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", self.host, cmd],
@@ -82,10 +88,28 @@ class Tablet:
         except Exception:
             return doc
 
-    def write_file_and_restart(self, rel: str, data: bytes, expected_sha: str):
-        """File path. Checks the page is still what was reviewed right before stopping the app."""
-        if sha(self.fetch(rel)) != expected_sha:
+    def open_page(self) -> tuple[str, str] | None:
+        """(document, page) open on the screen, from the notes app's own log. None if unknown/closed."""
+        out = self.ssh("journalctl -u xochitl --since '-12 h' --no-pager -o cat | "
+                       "grep -E 'EntityOpen::open|loaded pageId=|now exiting' | tail -n 40").decode()
+        doc = page = None
+        for line in out.splitlines():
+            if "EntityOpen::open" in line and "{" in line:
+                doc, page = line.split("{", 1)[1].split("}", 1)[0], None
+            elif "loaded pageId=" in line and doc:
+                page = line.split("loaded pageId=", 1)[1].split()[0].rstrip(",")
+            elif "now exiting" in line and doc and doc in line:
+                doc = page = None
+        return (doc, page) if doc and page else None
+
+    def write_file_and_restart(self, rel: str, data: bytes, expected_sha: str, *, quiet_s: float):
+        """File path - guarded: restart allowed, long quiet, real pen idle, bytes only appended."""
+        original = self.fetch(rel)
+        if sha(original) != expected_sha:
             raise RuntimeError("page changed since review - not restarting")
+        self.guard.check_prefix(original, data)
+        self.guard.before_restart(allowed=self.allow_restart, quiet_s=quiet_s,
+                                  pen_idle_s=self.monitor.idle_s() if self.monitor else None)
         target = shlex.quote(XOCHITL + "/" + rel)
         self.ssh(f"systemctl stop xochitl && cat > {target}.inkpartner && mv {target}.inkpartner {target}"
                  f" ; systemctl start xochitl", data=data, timeout=60)
@@ -101,8 +125,13 @@ class PenChannel:
         self.cal = json.loads(CALIBRATION.read_text())   # no calibration -> no pen path (raises)
         self.device = device or self.cal.get("device", "event2")
 
-    def deliver(self, strokes: list[dict]) -> dict:
+    def deliver(self, strokes: list[dict], rel: str) -> dict:
         from . import penstream
+        doc, page = rel.split("/")[0], rel.split("/")[1].removesuffix(".rm")
+        mon = self.tablet.monitor
+        self.tablet.guard.before_pen(target_doc=doc, target_page=page, open_page=self.tablet.open_page(),
+                                     pen_idle_s=mon.idle_s() if mon else None,
+                                     viewport_ok=self.tablet.trust_viewport)
         sx, sy = float(self.cal["scale"]), float(self.cal.get("scale_y", self.cal["scale"]))
         ox, oy = float(self.cal["offset_x"]), float(self.cal["offset_y"])
         screen = [{"points": penstream.densify([[p[0] * sx + ox, p[1] * sy + oy] for p in s["points"]])}
@@ -110,8 +139,52 @@ class PenChannel:
         stream = penstream.build(screen)
         # `cat` reports EINVAL on this device even when every event arrives (algebra-agent, 20.10.):
         # the exit code says nothing - only reading the page back does.
-        self.tablet.ssh(f"cat > /dev/input/{shlex.quote(self.device)}", data=stream, timeout=60)
+        if mon:
+            mon.injecting = True
+        try:
+            self.tablet.ssh(f"cat > /dev/input/{shlex.quote(self.device)}", data=stream, timeout=60)
+        finally:
+            if mon:
+                mon.injecting = False
         return {"status": "sent_unverified", "bytes": len(stream), "strokes": len(screen)}
+
+
+class PenMonitor:
+    """Reads the pen device (read-only) to know when the real pen is in use. Events that arrive while
+    the agent itself injects are not counted as the student's."""
+
+    def __init__(self, host: str, device: str = "event2"):
+        import threading
+        self.host, self.device = host, device
+        self.last_real: float | None = None
+        self.started = time.time()
+        self.injecting = False
+        self.activity: list[float] = []
+        self._t = threading.Thread(target=self._run, daemon=True)
+        self._t.start()
+
+    def _run(self):
+        import struct
+        p = subprocess.Popen(["ssh", "-o", "BatchMode=yes", self.host, f"cat /dev/input/{self.device}"],
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        while True:
+            chunk = p.stdout.read(24 * 32)
+            if not chunk:
+                return
+            if not self.injecting:
+                now = time.time()
+                self.last_real = now
+                self.activity = [t for t in self.activity if now - t < 3600] + [now]
+
+    def idle_s(self) -> float | None:
+        """Seconds since the real pen last did anything; None until the monitor has watched a while."""
+        if self.last_real is None:
+            watched = time.time() - self.started
+            return watched if watched >= 5 else None
+        return time.time() - self.last_real
+
+    def active_between(self, t0: float, t1: float) -> bool:
+        return any(t0 <= t <= t1 for t in self.activity)
 
 
 @dataclass
@@ -230,8 +303,20 @@ class Watcher:
         allowed -> otherwise wait and retry later. Never counted as done unless read back."""
         result = {}
         missing = list(r.strokes)
+        from .guards import GuardError, Stopped
         if self.pen is not None and now >= self.pen_rest_until:
-            sent = self.pen.deliver(r.strokes)
+            t_send = time.time()
+            try:
+                sent = self.pen.deliver(r.strokes, rel)
+            except Stopped:
+                raise
+            except GuardError as e:
+                self.log(f"  pen refused: {e}")
+                sent = None
+            if sent is None:
+                st.pending = {"strokes": list(r.strokes), "base_sha": h, "speech": "", "since": now}
+                self.retry_pending(rel, st, now)
+                return {"path": "pen", "refused": True, "pending": True}
             before = pagemod.read_strokes(src)
             states, after_bytes = {}, data
             for _ in range(self.verify_tries):              # xochitl saves the pen strokes itself, a bit later
@@ -244,6 +329,9 @@ class Watcher:
                 states = verify.verify(r.strokes, before, after)
                 if all(v == "confirmed" for v in states.values()):
                     break
+            mon = self.tablet.monitor
+            self.tablet.guard.after_pen(before=before, after=after, expected=r.strokes,
+                                        real_pen_during=bool(mon and mon.active_between(t_send, time.time())))
             st.own_sha = sha(after_bytes)
             st.delivered |= {k for k, v in states.items() if v == "confirmed"}
             result = {"path": "pen", "sent": sent.get("status"), "verified": states}
@@ -278,13 +366,20 @@ class Watcher:
         quiet = now - max(x.last_change for x in self.pages.values())
         if (self.allow_restart and quiet >= self.restart_quiet_s
                 and now - self.last_restart >= self.restart_gap_s):
+            from .guards import GuardError, Stopped
             self.last_restart = now
             with tempfile.TemporaryDirectory() as tmp:
                 src, out = os.path.join(tmp, "in.rm"), os.path.join(tmp, "out.rm")
                 Path(src).write_bytes(current)
                 pagemod.append_strokes(src, p["strokes"], out)
                 new = Path(out).read_bytes()
-            self.tablet.write_file_and_restart(rel, new, p["base_sha"])
+            try:
+                self.tablet.write_file_and_restart(rel, new, p["base_sha"], quiet_s=quiet)
+            except Stopped:
+                raise
+            except GuardError as e:
+                self.log(f"  restart refused: {e}")
+                return
             back = self.tablet.fetch(rel)
             st.own_sha = sha(back)
             if back == new:
@@ -301,17 +396,20 @@ class Watcher:
             self.log("  spoken while writing is not possible")
 
 
-def run(host="remarkable", model=None, subject=None, interval_s=3.0, once=False, **kw):
-    """Loop forever (or until the first review with --once)."""
+def run(host="remarkable", model=None, subject=None, interval_s=3.0, once=False, trust_viewport=False, **kw):
+    """Loop forever (or until the first review with --once). Stops for good on the kill switch."""
     from . import models
-    w = Watcher(Tablet(host), models.get(model), subject=subject, **kw)
+    from .guards import Stopped
+    tablet = Tablet(host, monitor=PenMonitor(host), trust_viewport=trust_viewport,
+                    allow_restart=kw.get("allow_restart", False))
+    w = Watcher(tablet, models.get(model), subject=subject, **kw)
     w.log(f"watching {host} every {interval_s}s with {w.model.name}; pen path: {'yes' if w.pen else 'no'}")
     while True:
         try:
             r = w.tick()
             if once and r is not None:
                 return r
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, Stopped):
             raise
         except Exception as e:
             w.log(f"error: {e}")

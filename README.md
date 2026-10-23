@@ -106,4 +106,4 @@ Farbe und Ebene absichtlich: Sie erkennt die Tinte auf beiden Wegen.
 
 Vergleich mit den bisherigen Varianten: [docs/VERGLEICH.md](docs/VERGLEICH.md).
 Messergebnisse der Simulation als Seite: [docs/messstand/](docs/messstand/README.md).
-Wie das Projekt gearbeitet hat: [docs/ARBEITSWEISE.md](docs/ARBEITSWEISE.md); allgemein für andere Projekte: [docs/METHODE.md](docs/METHODE.md) (als Skill: `skills/experiment-zu-projekt/`).
+Wie das Projekt gearbeitet hat: [docs/ARBEITSWEISE.md](docs/ARBEITSWEISE.md); allgemein für andere Projekte: [docs/METHODE.md](docs/METHODE.md) (als Skill: [HAI-skills-registry/experiment-to-project](https://github.com/smlfg/HAI-skills-registry/tree/main/skills/engineering/experiment-to-project)).

@@ -35,9 +35,20 @@ def run(strokes: list[dict], *, model=None, subject: str | None = None, elements
         proposals = agent.judge(judge_model or model, strokes, elements, profile, checked=checked)
     # What the checker proved correct gets its check mark even if the model forgot it -
     # "bis hierhin fehlerfrei" should not depend on the model's mood.
+    # The same for a step the checker proved wrong: the red circle does not depend on the model either.
     acted = {a.element for a, _ in proposals}
+    marked_wrong = {a.element for a, _ in proposals if a.verdict == "wrong"}
     proposals = list(proposals) + [(plan.Action(eid, "correct", "check", why="sympy"), "")
                                    for eid, v in checked.items() if v == "correct" and eid not in acted]
+    # Only the FIRST wrong step of an exercise gets the automatic circle: lines built on it are wrong
+    # too, but a teacher marks the cause once, not every follow-on line (they still never turn green).
+    by_id = {e.id: e for e in elements}
+    first_wrong = {}
+    for eid, v in checked.items():                 # insertion order = top to bottom
+        if v == "wrong":
+            first_wrong.setdefault(by_id[eid].group, eid)
+    proposals += [(plan.Action(eid, "wrong", "circle", why="sympy"), "")
+                  for eid in first_wrong.values() if eid not in marked_wrong]
     review = plan.validate([a for a, _ in proposals], elements, profile, delivered=delivered, overrides=checked)
     height = max([PAGE_H] + [int(p[1]) + 200 for s in strokes for p in s["points"]])
     ink = plan.draw(review.accepted, elements, strokes, width=PAGE_W, height=height)

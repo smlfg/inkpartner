@@ -46,6 +46,10 @@ def meaning(text: str, above: str = ""):
     """('equation', solutions, var) | ('chain', all_equal) | ('expression', expr) | None."""
     from sympy import S, solveset, Union, simplify
     t = text.strip().rstrip(".")
+    for tail in ("=>", "⇒", "->", "="):
+        if t.endswith(tail):                       # '(z+x)^4 =' : the expression the next line expands
+            t = t[: -len(tail)].strip()
+            break
     if t.startswith("=") and above:
         t = above.split("=")[-1] + t
     try:

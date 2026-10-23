@@ -33,6 +33,12 @@ class MathCheck(unittest.TestCase):
                              "L7": "correct", "L8": "correct", "L9": "correct", "L10": "correct",
                              "L11": "wrong"})
 
+    def test_line_ending_in_equals_is_the_expression_to_expand(self):
+        els = [el("a", "(z+x)^4 =", 100), el("b", "z^4+zx^4+z^4x+x^4", 200)]
+        self.assertEqual(mathcheck.check_steps(els), {"b": "wrong"})
+        els = [el("a", "(a+b)^2 =>", 100), el("b", "a^2+2ab+b^2", 200)]
+        self.assertEqual(mathcheck.check_steps(els), {"b": "correct"})
+
     def test_latex_braces_from_the_model(self):
         els = [el("a", "(z+x)^2", 100), el("b", "z^{2}+2zx+x^{2}", 200)]
         self.assertEqual(mathcheck.check_steps(els), {"b": "correct"})
@@ -355,7 +361,8 @@ class Demo(unittest.TestCase):
         strokes, ink, rounds = demo.build()
         self.assertTrue(ink)
         math = rounds[0]
-        self.assertNotIn("m3", [a.element for a in math.accepted])  # built on the error: never green
+        self.assertNotIn(("m3", "correct"), [(a.element, a.verdict) for a in math.accepted])  # never green
+        self.assertNotIn(("m3", "wrong"), [(a.element, a.verdict) for a in math.accepted])    # cause marked once
         self.assertNotIn("m4", [a.element for a in math.accepted])  # uncertain reading: no green
 
 
@@ -681,9 +688,9 @@ class Simulation(unittest.TestCase):
         self.assertEqual([l["outcome"] for l in run.lines], ["ok", "hit"])
         self.assertEqual(len(run.rounds), 2)              # the agent reacted after each line
 
-    def test_a_false_green_cannot_even_reach_the_page(self):
-        run = self._run("correct")                         # sympy says wrong -> the rules reject the green
-        self.assertEqual([l["outcome"] for l in run.lines], ["ok", "miss"])
+    def test_a_false_green_is_replaced_by_the_checkers_red(self):
+        run = self._run("correct")       # sympy says wrong: the green is rejected, the circle comes from the rule
+        self.assertEqual([l["outcome"] for l in run.lines], ["ok", "hit"])
 
     def test_handwriting_raises_exponents_and_slants(self):
         import random

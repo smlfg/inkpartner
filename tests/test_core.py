@@ -305,6 +305,15 @@ class Help(unittest.TestCase):
         ys = sorted({round(s["points"][0][1]) for s in r.strokes})
         self.assertGreater(ys[-1] - ys[0], 60)               # wrapped onto more than one line
 
+    def test_no_help_when_nobody_asked(self):
+        els = [Element(id="t", kind="formula", bbox=[300, 160, 960, 260], text="3(x+2)=15", confidence=0.9)]
+        r = plan.validate([plan.Action("t", "help", "note", text="Klammer aufloesen")], els, profiles.get("math"))
+        self.assertEqual(r.accepted, [])
+        self.assertIn("nobody asked", r.rejected[0][1])
+        els.append(Element(id="q", kind="text", bbox=[300, 300, 960, 400], text="das macht mir Probleme", confidence=0.9))
+        r = plan.validate([plan.Action("t", "help", "note", text="Klammer aufloesen")], els, profiles.get("math"))
+        self.assertEqual(len(r.accepted), 1)
+
     def test_help_must_be_a_note(self):
         els = [Element(id="q", kind="formula", bbox=[300, 160, 960, 410], text="x=?", confidence=0.9)]
         r = plan.validate([plan.Action("q", "help", "circle")], els, profiles.get("math"))

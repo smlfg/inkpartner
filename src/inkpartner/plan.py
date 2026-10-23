@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from . import layout, marks
-from .elements import Element
+from .elements import Element, page_asks_for_help
 
 VERDICT_COLOR = {"correct": "green", "wrong": "red", "hint": "blue", "unreadable": "gray", "help": "blue"}
 MARKS_FOR = {"correct": {"check", "underline"},
@@ -47,6 +47,7 @@ def validate(actions: list[Action], elements: list[Element], profile, *, deliver
     checker (e.g. sympy); a model verdict that contradicts it is rejected."""
     by_id = {e.id: e for e in elements}
     overrides = overrides or {}
+    asked = page_asks_for_help(elements)
     out = Review()
     for a in actions:
         el = by_id.get(a.element)
@@ -57,6 +58,8 @@ def validate(actions: list[Action], elements: list[Element], profile, *, deliver
             reason = f"unknown verdict {a.verdict!r}"
         elif a.mark not in MARKS_FOR[a.verdict] or a.mark not in profile.marks:
             reason = f"mark {a.mark!r} not allowed for {a.verdict!r} in {profile.name}"
+        elif a.verdict == "help" and not asked:
+            reason = "nobody asked for help on this page"
         elif a.verdict == "correct" and not el.certain:
             reason = "uncertain reading is never confirmed green"
         elif a.verdict in ("correct", "wrong") and not el.legible:

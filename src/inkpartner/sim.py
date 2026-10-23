@@ -207,7 +207,7 @@ def score_line(line: Line, box, elements, rounds) -> LineResult:
     if line.expect == "wrong":
         outcome = "critical" if "correct" in v else "hit" if "wrong" in v else "partial" if v & {"hint", "help"} else "miss"
     elif line.expect == "ok":
-        outcome = "critical" if "wrong" in v else "ok"
+        outcome = "critical" if "wrong" in v else "noise" if v & {"help", "hint"} else "ok"
     elif line.expect == "help":
         outcome = "hit" if "help" in v else "partial" if "hint" in v else "miss"
     else:
@@ -292,7 +292,7 @@ def _slug(s: str) -> str:
 def summarize(runs: list[Run]) -> dict:
     by = {}
     for r in runs:
-        c = by.setdefault(r.config, {"lines": 0, "hit": 0, "critical": 0, "miss": 0, "partial": 0, "ok": 0,
+        c = by.setdefault(r.config, {"lines": 0, "hit": 0, "critical": 0, "miss": 0, "partial": 0, "ok": 0, "noise": 0,
                                      "read": [], "seconds": [], "errors": 0})
         for l in r.lines:
             c["lines"] += 1
@@ -310,14 +310,15 @@ def summarize(runs: list[Run]) -> dict:
 def report(runs: list[Run], path: str):
     s = summarize(runs)
     md = ["# Simulation: reagiert der Agent, und wie?", "",
-          "| Leseweg | Bewertung | gelesen (0..1) | Treffer | kritisch | verpasst | teilweise | Sek./Runde | Fehler |",
-          "|---|---|---|---|---|---|---|---|---|"]
+          "| Leseweg | Bewertung | gelesen (0..1) | Treffer | kritisch | verpasst | teilweise | ungefragt | Sek./Runde | Fehler |",
+          "|---|---|---|---|---|---|---|---|---|---|"]
     for cfg, c in s.items():
         reader, judge = cfg.split(" | judge ")
         md.append(f"| {reader} | {judge} | {c['read_mean']} | {c['hit']} | {c['critical']} | {c['miss']} | "
-                  f"{c['partial']} | {c['seconds_mean']} | {c['errors']} |")
+                  f"{c['partial']} | {c['noise']} | {c['seconds_mean']} | {c['errors']} |")
     md += ["", "Treffer = erwartete Reaktion (Fehler rot, Hilfe bei Frage, Wellenlinie bei Gekritzel). "
-           "Kritisch = falsches Grün auf einem Fehler oder falsches Rot auf richtiger Zeile.", ""]
+           "Kritisch = falsches Grün auf einem Fehler oder falsches Rot auf richtiger Zeile. "
+           "Ungefragt = Hilfe oder Hinweis auf einer richtigen Zeile, obwohl niemand gefragt hat.", ""]
     for r in runs:
         md.append(f"## {r.scenario} — {r.config}")
         for l in r.lines:

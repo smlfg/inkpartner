@@ -106,6 +106,6 @@ def judge(model, strokes: list[dict], elements: list[Element], profile, *,
 
 
 def asks_for_help(e: Element) -> bool:
-    """A line that ends in a question - '(3x+4y)^3 = ?' - is a request, not an answer to check."""
-    t = e.text.strip().lower().replace(" ", "")
-    return t.endswith("?") or t.endswith("=") or "hilfe" in t
+    """A line with a question - '(3x+4y)^3 = ?' - is a request, not an answer to check."""
+    from .elements import ASK
+    return bool(ASK.search(e.text or ""))

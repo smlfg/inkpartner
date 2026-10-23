@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 import hashlib
 import json
+import re
 
 KINDS = ("line", "formula", "code", "text", "node", "edge", "arrow", "box", "table", "drawing")
 
@@ -50,3 +51,13 @@ class Element:
 
 def from_dicts(items: list[dict]) -> list[Element]:
     return [Element(**{k: v for k, v in d.items() if k in Element.__dataclass_fields__}) for d in items]
+
+
+ASK = re.compile(r"\?|hilfe|problem|versteh|wie mache|wie geht|weiss nicht|weiß nicht", re.I)
+
+
+def page_asks_for_help(elements: list[Element]) -> bool:
+    """Help is only given when the page asks for it: a question mark, 'Hilfe', 'Problem', 'versteh...'.
+    A task line on its own ('3(x+2)=15', '(z+x)^4 =') is not a request - the student is about to
+    work on it (simulation 2026-10-23: unasked help after every first line)."""
+    return any(ASK.search(e.text or "") for e in elements)

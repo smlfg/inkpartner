@@ -89,13 +89,14 @@ def _json_call(client, content, schema, effort: str) -> dict:
 def read(client, strokes: list[dict], *, effort: str = "high") -> tuple[str, list[Element]]:
     """Student strokes -> (subject, elements). Agent ink is left out of the picture on purpose."""
     img = pagemod.render(strokes, authors=("user",))
-    k = 1 / 0.5                                  # render() draws at half scale
+    fx0, fy0, fx1, fy1 = img.info["frame"]       # the image covers this part of the page
     data = _json_call(client, [_image_block(pagemod.png_bytes(img)), {"type": "text", "text": READ_PROMPT}],
                       READ_SCHEMA, effort)
     els = []
     for i, d in enumerate(data["elements"]):
         b = (d["box"] + [0, 0, 0, 0])[:4]
-        bbox = [b[0] * img.width * k, b[1] * img.height * k, b[2] * img.width * k, b[3] * img.height * k]
+        bbox = [fx0 + b[0] * (fx1 - fx0), fy0 + b[1] * (fy1 - fy0),
+                fx0 + b[2] * (fx1 - fx0), fy0 + b[3] * (fy1 - fy0)]
         bbox = [min(bbox[0], bbox[2]), min(bbox[1], bbox[3]), max(bbox[0], bbox[2]), max(bbox[1], bbox[3])]
         els.append(Element(id=f"e{i}", kind=d["kind"], bbox=bbox, text=d["text"], latex=d["latex"],
                            confidence=float(d["confidence"]), legible=bool(d["legible"])))

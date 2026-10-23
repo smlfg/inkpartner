@@ -55,15 +55,22 @@ def read_strokes(path: str) -> list[dict]:
 
 def render(strokes: list[dict], *, width: int = PAGE_W, height: int | None = None, scale: float = 0.5,
            authors: tuple[str, ...] = ("user", "agent")) -> Image.Image:
-    """Draw the strokes on white paper. The frame grows with the ink (scrolled pages are longer)."""
+    """Draw the strokes on white paper. The frame follows the ink on both axes: on the device a page
+    is longer when scrolled and wider when zoomed out (seen 2026-10-23: x from -454 to 2099 on a
+    1620 px page). A frame cut to the paper format silently drops the left edge of the writing.
+    `img.info["frame"]` = [x0, y0, x1, y1] in page pixels, for mapping image boxes back to the page."""
+    xs = [p[0] for s in strokes for p in s["points"]]
     ys = [p[1] for s in strokes for p in s["points"]]
-    h = max(height or PAGE_H, int(max(ys, default=0)) + 40)
-    img = Image.new("RGB", (int(width * scale), int(h * scale)), "white")
+    x0 = min(0, int(min(xs, default=0)) - 30)
+    x1 = max(width, int(max(xs, default=0)) + 30)
+    y1 = max(height or PAGE_H, int(max(ys, default=0)) + 40)
+    img = Image.new("RGB", (int((x1 - x0) * scale), int(y1 * scale)), "white")
+    img.info["frame"] = [x0, 0, x1, y1]
     d = ImageDraw.Draw(img)
     for s in strokes:
         if s.get("author", "user") not in authors:
             continue
-        xy = [(p[0] * scale, p[1] * scale) for p in s["points"]]
+        xy = [((p[0] - x0) * scale, p[1] * scale) for p in s["points"]]
         w = max(1, int(round(s.get("width", 3) * scale)))
         if len(xy) == 1:
             x, y = xy[0]

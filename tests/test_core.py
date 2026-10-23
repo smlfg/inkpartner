@@ -230,6 +230,16 @@ class PageFile(unittest.TestCase):
             shutil.rmtree(tmp)
 
 
+class Render(unittest.TestCase):
+    def test_frame_follows_ink_beyond_the_paper(self):
+        ink = [{"points": [[-454, 100, .5], [2099, 17087, .5]], "color": "black", "author": "user"}]
+        img = page.render(ink, scale=0.1)
+        x0, _, x1, y1 = img.info["frame"]
+        self.assertLessEqual(x0, -454)
+        self.assertGreaterEqual(x1, 2099)
+        self.assertGreaterEqual(y1, 17087)
+
+
 class Agent(unittest.TestCase):
     """The model calls with a fake client: request shape and parsing, no network."""
 

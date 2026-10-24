@@ -55,6 +55,14 @@ Das Gerät wird erst angefasst, wenn eine Änderung dort gemessen besser ist.
 | 2 | Boxen trafen die Zeile nur zu 25 % | Lesen, behoben durch Geometrie |
 | 2 | sympy urteilte über unsichere Lesungen | Regel |
 | 3 | Gekritzel als verpasst gezählt, obwohl die Wellenlinie gezeichnet wurde | **Auswertung** |
+| 4 | Zeichen 6–14 px daneben bei Zoom | Messung der Ansicht, behoben durch Feinsuche |
+| 5 | zehn Sätze Erklärung: „selbst tun“ 0,06 | Prompt; Hilfe in Stufen: 0,81 |
+| 6 | Fehler als „help“ vorgeschlagen, von der Regel verworfen | Modell; Prompt-Korrektur **verworfen** (5 falsche Rot) |
+| 7 | falsches Grün ohne sichtbare Aufgabe | Regel |
+| 7 | Grün, dann Rot an derselben Zeile | Lesen schwankt; Regel |
+| 7 | i-Punkt verschmilzt Zeilen | Code (Zeilentrennung) |
+| 7 | Chaos-Szenario meldete alles verloren | **Auswertung** (Schreibpause im Skript zu kurz) |
+| 7 | MiniMax-Läufe ungültig | Zugang lief ab (Messumgebung) |
 
 Jeder Befund wird einer Ursache zugeordnet: Modell, Regel oder Messung. Ein Teil der Fehler steckt
 regelmäßig im Messen selbst. Deshalb werden die Runden im Wortlaut gelesen, nicht nur die Zahlen.
@@ -66,7 +74,7 @@ regelmäßig im Messen selbst. Deshalb werden die Runden im Wortlaut gelesen, ni
 3. Drei begleitete Gerätetests mit Rückprüfung, ohne Auslösen einer Schutzprüfung.
 4. Erst dann läuft der Wächter allein.
 
-Stand 23.10.: Stufe 1 fast erreicht, Stufe 2 läuft, Stufen 3–4 offen.
+Stand 24.10. morgens: Stufe 1 für Mathe erreicht, Stufe 2 (deine echten Seiten) noch 2 kritische Fehler, Stufen 3–4 offen: kein Gerätetest, die Sperre war die ganze Nacht gesetzt.
 
 ## Was in dieser Sitzung schiefging (und jetzt Regel ist)
 

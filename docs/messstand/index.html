@@ -42,7 +42,7 @@
   <header id="kopf">
     <h1>inkpartner Messstand</h1>
     <p class="lead" id="takeaway" data-source="kopf">—</p>
-    <p class="note">Ein simulierter Schüler schreibt Zeile für Zeile, der echte Agent reagiert auf einem simulierten Tablet, jede Reaktion wird gegen die Wahrheit des Szenarios gewertet. Das echte Tablet wird dabei nicht angefasst. Kacheln: lokales Modell qwen3.6, künstliche Schrift, letzte Runde gegen Runde 1.</p>
+    <p class="note">Ein simulierter Schüler schreibt Zeile für Zeile, der echte Agent reagiert auf einem simulierten Tablet, jede Reaktion wird gegen die Wahrheit des Szenarios gewertet. Das echte Tablet wird dabei nicht angefasst. Runden 1–3: Mathe lesen und bewerten. Runde 4: zurückschreiben. Runde 5: Hilfe in Stufen. Runde 6: andere Fächer. Runde 7: PDFs, Seitenwechsel, echte Seiten neu. Kacheln: lokales Modell qwen3.6, künstliche Mathe-Schrift, Runde 3 gegen Runde 1.</p>
   </header>
 
   <section class="tiles" id="kacheln">
@@ -70,11 +70,11 @@
 
   <section class="card" id="vergleich-karte">
     <h2>Lesewege und Modelle im Vergleich</h2>
-    <p class="note">Neueste Runde, nur künstliche Schrift, damit alle dieselben Szenarien hatten. Leseweg: <code>vlm</code> ganze Seite ans Bildmodell, <code>lines</code> Zeilen-Ausschnitte, <code>shot</code> Screenshot des Tablets, <code>agree</code> zwei Lesungen müssen übereinstimmen, <code>ocr</code> klassische Texterkennung. Runde 3 läuft noch: weitere Zeilen kommen dazu.</p>
+    <p class="note">Neueste Runde, nur künstliche Schrift, also dieselben 11 Szenarien für alle; ab Runde 3. Leseweg: <code>vlm</code> ganze Seite ans Bildmodell, <code>lines</code> Zeilen-Ausschnitte, <code>shot</code> Screenshot des Tablets, <code>agree</code> zwei Lesungen müssen übereinstimmen, <code>ocr</code> klassische Texterkennung. Runde 7: <code>lines</code> nach der Reparatur der Zeilentrennung.</p>
     <div class="tablebox">
       <table id="vergleich" data-source="vergleich" data-row-key="id">
         <thead><tr>
-          <th data-field="leseweg">Leseweg</th><th data-field="bewertung">Bewertung</th>
+          <th data-field="runde">Runde</th><th data-field="leseweg">Leseweg</th><th data-field="bewertung">Bewertung</th>
           <th class="num" data-field="zeilen">Zeilen</th><th class="num" data-field="quote">Treffer</th>
           <th class="num" data-field="kritisch">Kritisch</th><th class="num" data-field="verpasst">Verpasst</th>
           <th class="num" data-field="ungefragt">Ungefragt</th><th class="num" data-field="lesen">Gelesen</th>
@@ -87,7 +87,7 @@
 
   <section class="card" id="echt-karte">
     <h2>Deine echten Seiten, Zeile für Zeile</h2>
-    <p class="note">Deine Handschrift von „Lernen“ (Aufgabe 4b) und „inkpartnertest“, so abgespielt, wie du geschrieben hast. Hier fielen die Fehler auf, die künstliche Schrift nicht zeigt: Fehllesen (9/4 als 5/4) führte zu falschem Rot, „das macht mir Probleme“ zu Hilfe an vielen Zeilen. Beides ist seitdem per Regel abgefangen; die Messung mit zwei Lesungen läuft in Runde 3.</p>
+    <p class="note">Deine Handschrift von „Lernen“ (Aufgabe 4b) und „inkpartnertest“, so abgespielt, wie du geschrieben hast. Hier fielen die Fehler auf, die künstliche Schrift nicht zeigt: Fehllesen (9/4 als 5/4) führte zu falschem Rot, „das macht mir Probleme“ zu Hilfe an vielen Zeilen. Runde 7 misst sie nach den neuen Regeln erneut: qwen3.6 von 3 auf 2 kritische Fehler; MiniMax-M3, auf künstlicher Schrift gleichauf, macht hier 8.</p>
     <div class="tablebox">
       <table id="echt" data-source="echt" data-row-key="id">
         <thead><tr>
@@ -96,6 +96,84 @@
         </tr></thead>
         <tbody></tbody>
       </table>
+    </div>
+  </section>
+
+  <section class="card" id="rueckweg-karte">
+    <h2>Runde 4 und 7: Zurückschreiben mit dem Stift</h2>
+    <p class="note">Simulierter Bildschirm mit Zoom, Scrollen und veraltetem Vorschaubild (du hast gescrollt, ohne zu schreiben). Der Agent schätzt die Ansicht aus dem Vorschaubild, schickt zuerst einen kleinen Probestrich, liest die Seite zurück und schreibt den Rest nur, wenn der Probestrich auf 8 px genau saß. „Wartet“ ist richtig, wenn das Zeichen aus dem Bildschirm ragen würde. Am echten Tablet ist das noch nicht gemessen.</p>
+    <div class="tablebox">
+      <table id="rueckweg_tab" data-source="rueckweg_tab" data-row-key="id">
+        <thead><tr>
+          <th data-field="fall">Fall</th><th data-field="erwartet">Erwartet</th><th data-field="ergebnis">Ergebnis</th>
+          <th class="num" data-field="versuche">Versuche</th><th data-field="abgelehnt">Abgelehnt wegen</th>
+          <th class="num" data-field="abweichung_px">Abweichung px</th><th class="num" data-field="streustriche">Streustriche</th>
+          <th class="num" data-field="auf_schrift">auf deiner Schrift</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" id="hilfe-karte">
+    <h2>Runde 5: Hilfe in Stufen statt zehn Sätze</h2>
+    <p class="note">Aus deiner Auswertung der Prüfungsvorbereitung: Erklärungen fühlten sich produktiv an, ersetzten aber das selbstständige Lösen. Verglichen: <code>plain</code> (bis zu zehn Sätze erklären), <code>ladder</code> (Stufe 1 Leitfrage, Stufe 2 ein Schritt, Stufe 3 ganze Erklärung plus neue Aufgabe) und <code>ladder+words</code> (dazu Mathematik in Worten sprechen). „Selbst tun“: Muss der Student den nächsten Schritt selbst leisten? Bewertet von gemma4 und, solange der Zugang hielt, MiniMax-M3.</p>
+    <div class="tablebox">
+      <table id="hilfe_tab" data-source="hilfe_tab" data-row-key="id">
+        <thead><tr>
+          <th data-field="modell">Modell</th><th data-field="variante">Variante</th><th class="num" data-field="n">Antworten</th>
+          <th class="num" data-field="regeln">Regeln</th><th class="num" data-field="sprechbar">sprechbar</th>
+          <th class="num" data-field="kein_ergebnis">kein Ergebnis verraten</th><th class="num" data-field="korrekt">korrekt</th>
+          <th class="num" data-field="selbst_tun">selbst tun</th><th class="num" data-field="verstaendlich">verständlich</th>
+          <th class="num" data-field="sek">Sek.</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" id="faecher-karte">
+    <h2>Runde 6: andere Fächer</h2>
+    <p class="note">Code (auch aus deiner Vorlesung vom 16.10., Schlangenmuster im Raster), BWL, Projektmanagement, gezeichnete neuronale Netze und Graphen. Gelesen wird fast alles richtig; beurteilt wird es je nach Modell sehr unterschiedlich.</p>
+    <div class="tablebox">
+      <table id="faecher" data-source="faecher" data-row-key="id">
+        <thead><tr>
+          <th data-field="runde">Runde</th><th data-field="leseweg">Leseweg</th><th data-field="fach">Fach</th>
+          <th class="num" data-field="zeilen">Zeilen</th><th class="num" data-field="quote">Treffer</th>
+          <th class="num" data-field="kritisch">Kritisch</th><th class="num" data-field="verpasst">Verpasst</th>
+          <th class="num" data-field="ungefragt">Ungefragt</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="grid2">
+    <div class="card" id="pdf-karte">
+      <h2>Runde 7: PDF-Aufgabenblätter</h2>
+      <p class="note">Dieselbe Antwort, einmal mit der gedruckten Aufgabe im Bild, einmal ohne. Ohne Aufgabe ist <code>a²+b²</code> weder richtig noch falsch.</p>
+      <div class="tablebox">
+        <table id="pdf_tab" data-source="pdf_tab" data-row-key="id">
+          <thead><tr>
+            <th data-field="runde">Runde</th><th data-field="leseweg">Leseweg</th><th data-field="hintergrund">Hintergrund</th>
+            <th class="num" data-field="zeilen">Zeilen</th><th class="num" data-field="quote">Treffer</th>
+            <th class="num" data-field="kritisch">Kritisch</th><th class="num" data-field="verpasst">Verpasst</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card" id="chaos-karte">
+      <h2>Runde 7: Chaos-Modus</h2>
+      <p class="note">Du springst zwischen Seiten, Notizbüchern und Ordnern, verlässt eine Seite vor der Schreibpause und kommst ohne zu schreiben zurück. Ohne Modell, damit nur das „Wo“ gemessen wird.</p>
+      <div class="tablebox">
+        <table id="chaos_tab" data-source="chaos_tab" data-row-key="id">
+          <thead><tr>
+            <th data-field="seite">Seite</th><th data-field="zeile">Zeile</th><th data-field="erwartet">Erwartet</th><th data-field="ergebnis">Ergebnis</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </div>
   </section>
 
@@ -108,6 +186,15 @@
       <li><b>Gekritzel wurde als Text erfunden</b> („mwwv“). Jetzt: ist die zweite Lesung leer oder anders, gilt die Stelle als unleserlich und bekommt die Wellenlinie per Regel.</li>
       <li><b>Boxen lagen neben der Zeile</b>, also auch Kreis und Haken. Jetzt rasten die Boxen auf die echten Striche ein.</li>
       <li><b>Die Auswertung selbst war falsch</b>: echte Reaktionen zählten als „keine“. Jetzt werden Zeichen über den gelesenen Text zugeordnet, die Platzierung ist eine eigene Zahl.</li>
+      <li><b>Zoom und Scrollen</b> (Runde 4): die Ansicht kommt jetzt aus dem Vorschaubild, fein gesucht; ein Probestrich prüft sie. Veraltete Vorschaubilder kosten einen kleinen Streustrich statt einer ganzen Notiz am falschen Ort. 18 von 18 Fällen richtig, 0,9 px Abweichung.</li>
+      <li><b>Eigene Stiftstriche</b> landen in deiner Ebene. Der Wächter merkt sich jeden davon und liest ihn nicht als deine Schrift.</li>
+      <li><b>Zehn Sätze Erklärung nehmen das Denken ab</b> (Runde 5): „selbst tun“ 0,06 bei plain, 0,81 mit Hilfe in Stufen. Stufe 1 fragt jetzt nach, wenn unklar ist, was gemeint ist; Stufe 2 behauptet nichts, was nicht auf dem Blatt steht (vier schwere Fälle: korrekt 0,71 → 0,92).</li>
+      <li><b>Ohne Aufgabe gab es falsches Grün</b> (Runde 7, PDF): <code>a²+b²</code> und <code>f'(x)=3x</code> wurden abgehakt. Jetzt urteilt der Agent nur, wenn eine Aufgabe auf der Seite steht; kritische Fehler 3 → 1.</li>
+      <li><b>Haken auf gezeichneten Kreisen</b> (Runde 6): kein Urteil mehr über Zeichnungsteile ohne Text.</li>
+      <li><b>Grün, dann Rot an derselben Zeile</b> (echte Seiten): schwankende Lesungen. Was auf der Seite steht, wird nicht widerrufen, solange die Tinte gleich bleibt.</li>
+      <li><b>Ein i-Punkt verschmolz Zeilen</b> (Runde 7): Zeilen werden jetzt aus Strichen normaler Buchstabengröße gebildet; Leseweg <code>lines</code>: Lesen 0,65 → 0,92.</li>
+      <li><b>Verlassene Seite, Rückmeldung verloren</b> (Chaos): kommst du ohne zu schreiben zurück, wird sie jetzt nachgeliefert. Nie auf einer fremden Seite.</li>
+      <li><b>Verworfen</b>: „Fehler heißen wrong, nie help“ im Bewertungs-Prompt brachte mehr Treffer (2 → 6), aber 5 falsche Rot. Zurückgenommen.</li>
     </ul>
   </section>
 
@@ -132,10 +219,16 @@
 </div>
 
 <script>
-const OUT = {hit: "Treffer", critical: "kritisch", miss: "verpasst", partial: "teilweise", noise: "ungefragt", ok: "ruhig richtig"};
+const OUT = {hit: "Treffer", critical: "kritisch", miss: "verpasst", partial: "teilweise", noise: "ungefragt", ok: "ruhig richtig",
+             delivered: "geschrieben", refused: "wartet", wrong: "falsch", reacted: "reagiert", late: "nachgeliefert",
+             lost: "verloren", "false red": "falsches Rot"};
+const CHIP = {delivered: "hit", refused: "ok", wrong: "critical", reacted: "hit", late: "partial", lost: "miss", "false red": "critical"};
 window.ipOut = OUT;
 const EXPECTS_REACTION = (e) => e === "wrong" || e === "help" || e === "unreadable";
 const mean = (a) => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
+const MATHE = (x) => (x.satz || (x.echt ? "echt" : "mathe")) === "mathe";
+const NEED = (x) => x.erwartet === "wrong" || x.erwartet === "help" || x.erwartet === "unreadable";
+const quote = (zz) => { const n = zz.filter(NEED); return n.length ? n.filter(x => x.ergebnis === "hit").length / n.length : null; };
 
 dash.calc("kopf", {
   title: "Kennzahlen je Runde",
@@ -143,12 +236,12 @@ dash.calc("kopf", {
   inputs: ["zeilen", "runden"],
   fn: (zeilen, runden) => {
     const Q = "vlm:ollama:qwen3.6:35b-a3b";
-    const rounds = [...new Set(zeilen.map(z => z.runde))].sort();
+    const rounds = [...new Set(zeilen.filter(x => MATHE(x) && x.leseweg === Q).map(z => z.runde))].sort();
     return rounds.map(r => {
-      const z = zeilen.filter(x => x.runde === r && x.leseweg === Q && x.bewertung === "ollama:qwen3.6:35b-a3b" && !x.echt);
+      const z = zeilen.filter(x => x.runde === r && x.leseweg === Q && x.bewertung === "ollama:qwen3.6:35b-a3b" && MATHE(x));
       const need = z.filter(x => x.erwartet === "wrong" || x.erwartet === "help" || x.erwartet === "unreadable");
       const iou = z.map(x => x.box_iou).filter(v => v !== null && v !== undefined);
-      const t = runden.filter(x => x.runde === r && x.leseweg === Q && !String(x.szenario).startsWith("echt-")).map(x => x.sekunden);
+      const t = runden.filter(x => x.runde === r && x.leseweg === Q && MATHE(x)).map(x => x.sekunden);
       return {runde: r, quote: need.length ? need.filter(x => x.ergebnis === "hit").length / need.length : null,
               kritisch: z.filter(x => x.ergebnis === "critical").length, ungefragt: z.filter(x => x.ergebnis === "noise").length,
               lesen: z.length ? z.reduce((s, x) => s + x.lese_score, 0) / z.length : null,
@@ -176,9 +269,10 @@ dash.calc("verlauf", {
   inputs: ["zeilen"],
   fn: (zeilen) => {
     const out = [];
-    for (const r of [...new Set(zeilen.map(z => z.runde))].sort())
+    const Q = (x) => x.leseweg === "vlm:ollama:qwen3.6:35b-a3b" && x.bewertung === "ollama:qwen3.6:35b-a3b";
+    for (const r of [...new Set(zeilen.filter(x => MATHE(x) && Q(x)).map(z => z.runde))].sort())
       for (const e of ["hit", "ok", "partial", "miss", "noise", "critical"])
-        out.push({runde: r, ergebnis: e, n: zeilen.filter(x => x.runde === r && x.ergebnis === e && !x.echt
+        out.push({runde: r, ergebnis: e, n: zeilen.filter(x => x.runde === r && x.ergebnis === e && MATHE(x)
           && x.leseweg === "vlm:ollama:qwen3.6:35b-a3b" && x.bewertung === "ollama:qwen3.6:35b-a3b").length});
     return out;
   }
@@ -186,19 +280,18 @@ dash.calc("verlauf", {
 
 dash.calc("vergleich", {
   title: "Vergleich der Lesewege",
-  description: "Je Leseweg und Bewertungsmodell in der neuesten Runde, nur künstliche Schrift.",
+  description: "Je Runde, Leseweg und Bewertungsmodell ab Runde 3, nur künstliche Mathe-Schrift.",
   inputs: ["zeilen", "runden"],
   fn: (zeilen, runden) => {
-    const last = [...new Set(zeilen.map(z => z.runde))].sort().pop();
-    const z = zeilen.filter(x => x.runde === last && !x.echt);
-    const keys = [...new Set(z.map(x => x.leseweg + " | " + x.bewertung))];
+    const z = zeilen.filter(x => MATHE(x) && x.runde >= "Runde 3");
+    const keys = [...new Set(z.map(x => x.runde + " | " + x.leseweg + " | " + x.bewertung))];
     return keys.map(k => {
-      const [l, b] = k.split(" | ");
-      const zz = z.filter(x => x.leseweg === l && x.bewertung === b);
+      const [last, l, b] = k.split(" | ");
+      const zz = z.filter(x => x.runde === last && x.leseweg === l && x.bewertung === b);
       const need = zz.filter(x => x.erwartet === "wrong" || x.erwartet === "help" || x.erwartet === "unreadable");
       const iou = zz.map(x => x.box_iou).filter(v => v !== null && v !== undefined);
-      const t = runden.filter(x => x.runde === last && x.leseweg === l && x.bewertung === b && !String(x.szenario).startsWith("echt-")).map(x => x.sekunden);
-      return {id: k, leseweg: l, bewertung: b, zeilen: zz.length,
+      const t = runden.filter(x => x.runde === last && x.leseweg === l && x.bewertung === b && MATHE(x)).map(x => x.sekunden);
+      return {id: k, runde: last, leseweg: l, bewertung: b, zeilen: zz.length,
               quote: need.length ? need.filter(x => x.ergebnis === "hit").length / need.length : null,
               kritisch: zz.filter(x => x.ergebnis === "critical").length, verpasst: zz.filter(x => x.ergebnis === "miss").length,
               ungefragt: zz.filter(x => x.ergebnis === "noise").length,
@@ -217,6 +310,66 @@ dash.calc("echt", {
     id: x.runde + "|" + x.leseweg + "|" + x.szenario + "|" + i, runde: x.runde, leseweg: x.leseweg,
     seite: x.szenario === "echt-lernen-4b" ? "Lernen 4b" : "inkpartnertest", zeile: x.zeile,
     gelesen_als: x.gelesen_als, erwartet: x.erwartet, ergebnis: x.ergebnis}))
+});
+
+dash.calc("hilfe_tab", {
+  title: "Hilfe-Prompts im Vergleich",
+  description: "Runde 5: je Modell und Prompt-Variante Mittelwerte über alle Fälle und drei Stufen; Bewerterpunkte auf 0–1 umgerechnet.",
+  inputs: ["hilfe"],
+  fn: (hilfe) => {
+    const h = hilfe.filter(x => x.runde === "Runde 5");
+    const keys = [...new Set(h.map(x => x.modell + " | " + x.variante))];
+    const m = (a, f) => { const v = a.map(f).filter(v => v !== null && v !== undefined); return v.length ? mean(v) : null; };
+    return keys.map(k => { const [modell, variante] = k.split(" | "); const a = h.filter(x => x.modell === modell && x.variante === variante);
+      return {id: k, modell, variante, n: a.length, regeln: m(a, x => x.regeln), sprechbar: m(a, x => +x.sprechbar),
+              kein_ergebnis: m(a, x => +x.kein_ergebnis), korrekt: m(a, x => x.korrekt === null ? null : x.korrekt / 2),
+              selbst_tun: m(a, x => x.selbst_tun === null ? null : x.selbst_tun / 2),
+              verstaendlich: m(a, x => x.verstaendlich === null ? null : x.verstaendlich / 2), sek: m(a, x => x.sek)}; });
+  }
+});
+
+dash.calc("rueckweg_tab", {
+  title: "Zurückschreiben im Prüfstand",
+  description: "Runde 4 und 7: jeder Fall mit Zoom, Scrollen, veraltetem Vorschaubild, Vorlagen und PDF.",
+  inputs: ["rueckweg"],
+  fn: (r) => r.map(x => ({id: x.fall, ...x}))
+});
+
+dash.calc("faecher", {
+  title: "Andere Fächer",
+  description: "Runde 6: je Modell und Fach. Runde 6b: qwen3.6 nach der Prompt-Korrektur.",
+  inputs: ["zeilen"],
+  fn: (zeilen) => {
+    const FACH = {code: "Code", bwl: "BWL", pm: "Projektmanagement", nn: "Neuronales Netz", graph: "Graph"};
+    const z = zeilen.filter(x => x.satz === "faecher");
+    const f = (x) => x.szenario.split("-")[0];
+    const keys = [...new Set(z.map(x => x.runde + "|" + x.leseweg + "|" + f(x)))];
+    return keys.map(k => { const [runde, l, fa] = k.split("|"); const a = z.filter(x => x.runde === runde && x.leseweg === l && f(x) === fa);
+      return {id: k, runde, leseweg: l, fach: FACH[fa] || fa, zeilen: a.length, quote: quote(a),
+              kritisch: a.filter(x => x.ergebnis === "critical").length, verpasst: a.filter(x => x.ergebnis === "miss").length,
+              ungefragt: a.filter(x => x.ergebnis === "noise").length}; });
+  }
+});
+
+dash.calc("pdf_tab", {
+  title: "PDF mit und ohne Hintergrund",
+  description: "Runde 7: dieselben Aufgabenblätter, einmal sieht der Agent die gedruckte Aufgabe, einmal nur die Handschrift.",
+  inputs: ["zeilen"],
+  fn: (zeilen) => {
+    const z = zeilen.filter(x => x.satz === "pdf");
+    const h = (x) => x.szenario.endsWith("-ohne-pdf") ? "ohne" : "mit";
+    const keys = [...new Set(z.map(x => x.runde + "|" + x.leseweg + "|" + h(x)))];
+    return keys.map(k => { const [runde, l, hh] = k.split("|"); const a = z.filter(x => x.runde === runde && x.leseweg === l && h(x) === hh);
+      return {id: k, runde, leseweg: l, hintergrund: hh === "mit" ? "mit Aufgabe" : "nur Handschrift", zeilen: a.length, quote: quote(a),
+              kritisch: a.filter(x => x.ergebnis === "critical").length, verpasst: a.filter(x => x.ergebnis === "miss").length}; });
+  }
+});
+
+dash.calc("chaos_tab", {
+  title: "Chaos-Modus",
+  description: "Runde 7: Seiten-, Notizbuch- und Ordnerwechsel; jede geschriebene Zeile und was daraus wurde.",
+  inputs: ["chaos"],
+  fn: (c) => c.map((x, i) => ({id: String(i), ...x}))
 });
 
 const pct = d3.format(".0%"), f2 = d3.format(".2f"), f1 = d3.format(".1f");
@@ -240,7 +393,7 @@ dash.onData(() => {
     const r1 = k.data.find(r => r.runde === "Runde 1");
     const t = document.getElementById("takeaway");
     if (r3.quote !== undefined && r1) {
-      t.textContent = `In Runde 3 trifft der Agent ${pct(r3.quote)} der Zeilen, die eine Reaktion verlangen, mit ${r3.kritisch} kritischen Fehlern und ${r3.ungefragt} ungefragter Hilfe (Runde 1: ${r1.ungefragt}). Die größte offene Baustelle ist, wo die Zeichen landen, und das Gekritzel.`;
+      t.textContent = `Künstliche Mathe-Schrift: ${pct(r3.quote)} der nötigen Reaktionen getroffen, ${r3.kritisch} kritische Fehler, ${r3.ungefragt} ungefragte Hilfe (Runde 1: ${r1.ungefragt}). Auf deiner echten Handschrift bleiben 2 kritische Fehler, andere Fächer beurteilt das lokale Modell noch zu zaghaft, und am echten Tablet ist der neue Schreibweg noch nicht gemessen.`;
     }
   } else if (k.status !== "loading") tiles.forEach(el => { el.classList.remove("dash-skeleton"); el.textContent = "—"; });
   const ds = document.querySelectorAll("#kacheln .d[data-field]");
@@ -250,8 +403,13 @@ dash.onData(() => {
     ds.forEach(el => { const [fm, down] = how[el.dataset.field]; const s = signed(row[el.dataset.field], fm, down);
       el.textContent = s.t; el.className = "d " + s.c; });
   }
-  drawVerlauf(); drawZeit(); drawTable("vergleich", ["leseweg", "bewertung", "zeilen", "quote", "kritisch", "verpasst", "ungefragt", "lesen", "box", "sek"]);
+  drawVerlauf(); drawZeit(); drawTable("vergleich", ["runde", "leseweg", "bewertung", "zeilen", "quote", "kritisch", "verpasst", "ungefragt", "lesen", "box", "sek"]);
   drawTable("echt", ["runde", "leseweg", "seite", "zeile", "gelesen_als", "erwartet", "ergebnis"]);
+  drawTable("hilfe_tab", ["modell", "variante", "n", "regeln", "sprechbar", "kein_ergebnis", "korrekt", "selbst_tun", "verstaendlich", "sek"]);
+  drawTable("rueckweg_tab", ["fall", "erwartet", "ergebnis", "versuche", "abgelehnt", "abweichung_px", "streustriche", "auf_schrift"]);
+  drawTable("faecher", ["runde", "leseweg", "fach", "zeilen", "quote", "kritisch", "verpasst", "ungefragt"]);
+  drawTable("pdf_tab", ["runde", "leseweg", "hintergrund", "zeilen", "quote", "kritisch", "verpasst"]);
+  drawTable("chaos_tab", ["seite", "zeile", "erwartet", "ergebnis"]);
 });
 
 const COLORS = {hit: () => dash.colors[0], ok: () => "var(--cds-chart-muted)", partial: () => dash.colors[2], miss: () => dash.colors[3], noise: () => dash.colors[4], critical: () => "var(--cds-chart-status-critical)"};
@@ -306,13 +464,16 @@ function drawTable(id, cols) {
   const d = dash.data(id), tb = document.querySelector(`#${id} tbody`);
   if (d.status !== "ok") { if (d.status === "error") { tb.textContent = ""; } return; }
   tb.textContent = "";
-  const fmt = {quote: (v) => v === null ? "—" : pct(v), lesen: (v) => v === null ? "—" : f2(v), box: (v) => v === null || v === undefined ? "—" : f2(v), sek: (v) => v === null ? "—" : f1(v)};
+  const two = (v) => v === null || v === undefined ? "—" : f2(v);
+  const fmt = {quote: (v) => v === null ? "—" : pct(v), lesen: two, box: two, sek: (v) => v === null ? "—" : f1(v),
+               regeln: two, sprechbar: two, kein_ergebnis: two, korrekt: two, selbst_tun: two, verstaendlich: two,
+               abweichung_px: (v) => v === null || v === undefined ? "—" : f1(v)};
   for (const r of d.data) {
     const tr = document.createElement("tr"); tr.dataset.key = r.id;
     for (const c of cols) {
       const td = document.createElement("td");
       const v = r[c];
-      if (c === "ergebnis") { const s = document.createElement("span"); s.className = "chip " + v; s.textContent = OUT[v] || v; td.appendChild(s); }
+      if (c === "ergebnis") { const s = document.createElement("span"); s.className = "chip " + (CHIP[v] || v); s.textContent = OUT[v] || v; td.appendChild(s); }
       else if (c === "zeile" || c === "gelesen_als") { const code = document.createElement("code"); code.textContent = v || "—"; td.appendChild(code); }
       else { td.textContent = fmt[c] ? fmt[c](v) : (v === null || v === undefined || v === "" ? "—" : String(v)); }
       if (typeof v === "number") td.className = "num";

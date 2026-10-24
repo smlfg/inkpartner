@@ -92,3 +92,57 @@ sonst Stopp, und die Messung korrigiert den nächsten Versuch.
 **Nicht belegt:** Wie schnell der Notizen-App speichert (Wartezeit zwischen Probe und Rest), ob
 Stiftsignale über der Werkzeugleiste Werkzeuge umschalten, und wie oft das Vorschaubild in echt
 veraltet ist. Das klären die Gerätetests (`python -m inkpartner pentest`).
+
+## Runde 5: Hilfe in Stufen (24.10.)
+
+`python -m inkpartner tutoreval --gen ollama:qwen3.6:35b-a3b --grader ollama:gemma4:26b`. 9 Hilfe-Fälle
+(darunter dein Beispiel „Folge n hoch k“ und das Schlangenmuster aus der Vorlesung vom 16.10.) ×
+3 Stufen × 3 Prompt-Varianten. Regeln deterministisch, Fachlichkeit und „selbst tun“ von einem
+Bewerter aus einer anderen Modellfamilie (gemma4; MiniMax-M3, solange sein Zugang hielt).
+
+| Variante (qwen3.6) | korrekt | selbst tun | verständlich | sprechbar | kein Ergebnis verraten |
+|---|---|---|---|---|---|
+| plain: bis zu zehn Sätze erklären | 0,99 | **0,06** | 1,00 | 0,44 | 0,63 |
+| ladder: Leitfrage → ein Schritt → Erklärung + neue Aufgabe | 0,89 | 0,80 | 0,96 | 0,41 | 0,85 |
+| ladder+words: dazu Mathematik in Worten | 0,84 | **0,81** | 0,94 | **1,00** | **1,00** |
+
+Erklären ist fachlich fast immer richtig, nimmt aber das Denken ab, genau das Muster aus deiner
+eigenen Auswertung. Der Preis der Stufen: etwas weniger Korrektheit. Danach geändert: Stufe 1
+fragt, wenn unklar ist, was gemeint ist; Stufe 2 behauptet nichts, was nicht auf dem Blatt steht.
+Auf den vier schwersten Fällen: korrekt 0,71 → 0,92, selbst tun 0,77 → 0,92 (nur gemma als Bewerter).
+Die Bewerter waren sich bei 33 von 52 doppelt bewerteten Antworten in allen drei Punkten einig.
+
+## Runde 6: andere Fächer (24.10.)
+
+15 Szenarien: Code (Basisfall, Ganzzahldivision, Laufzeit, Schlangenmuster aus der Vorlesung),
+BWL, Projektmanagement, gezeichnete neuronale Netze und Graphen. `--scenario subjects`.
+
+| Leser und Bewerter | Treffer (nötig) | kritisch | verpasst |
+|---|---|---|---|
+| qwen3.6 | 20 % | 0 | 8 |
+| qwen3.6 mit „Fehler heißen wrong“ (verworfen) | 60 % | **5** | 4 |
+| gemma4 | 60 % | 4 | 1 |
+| MiniMax-M3 | 60 % | 1 | 1 |
+
+Gelesen wird fast alles richtig (0,87). qwen3.6 schlug für Fehler „help“ vor, das die Regel verwirft.
+Die Prompt-Korrektur brachte Treffer, aber falsches Rot auf halbfertigem Code und auf
+„Meilenstein: Dauer 0“: verworfen, weil ein falsches Rot schwerer wiegt als ein verpasster Fehler.
+Code zuverlässig zu beurteilen braucht einen eigenen Prüfer (Schnipsel ausführen), wie sympy für Mathe.
+
+## Runde 7: Chaos, PDF, echte Seiten neu (24.10.)
+
+| Messung | vorher | nachher | durch |
+|---|---|---|---|
+| PDF, MiniMax-M3: kritische Fehler | 3 | 1 | Urteil nur, wenn eine Aufgabe auf der Seite steht |
+| Fächer, MiniMax-M3: ungefragt | 3 | 1 | kein Urteil über Zeichnungsteile ohne Text |
+| echte Seiten, qwen3.6: kritische Fehler | 3 | 2 | nichts widerrufen, solange die Tinte gleich bleibt |
+| Leseweg `lines`: gelesen | 0,65 | 0,92 | Zeilentrennung ohne i-Punkt-Effekt |
+| Chaos: Reaktionen verloren | 1 von 5 | 0 von 5 | Nachliefern bei Rückkehr auf die Seite |
+| Zurückschreiben inkl. Vorlagen und PDF | – | 18/18 richtig, 0 auf deiner Schrift | Runde 4 |
+
+Echte Seiten mit MiniMax-M3: 8 kritische Fehler (künstliche Schrift: 0). Deine Handschrift ist der
+eigentliche Prüfstein; hier ist qwen3.6 lokal das beste Modell. Ohne die gedruckte Aufgabe schweigt
+der Agent jetzt; das zählt als „verpasst“, ist aber ohne Aufgabe das richtige Verhalten.
+
+**Nicht gültig:** MiniMax-M3.1-Flash auf echten Seiten (abgelaufener Zugang, 9 Fehler). Der Zugang
+über die MiniMax-Code-CLI hält etwa eine Stunde; für verlässliche Läufe braucht es einen API-Schlüssel.

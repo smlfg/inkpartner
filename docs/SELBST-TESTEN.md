@@ -13,7 +13,8 @@
 ```bash
 cd /tmp/inkp/ip3            # oder dein Klon von smlfg/inkpartner
 PYTHONPATH=src ../venv/bin/python -m inkpartner watch --model ollama:qwen3.6:35b-a3b
-# schneller, aus der Cloud:    --model minimax:MiniMax-M3
+# MiniMax-M3 (Cloud) ist auf künstlicher Schrift schneller, auf deiner echten Schrift aber deutlich
+# schlechter (8 statt 2 kritische Fehler) - für dich bleibt qwen3.6 lokal die Empfehlung.
 # nur Audiodateien statt Ton:  --speak file      ganz ohne Sprache: --speak off
 ```
 
@@ -30,7 +31,7 @@ Beenden mit Ctrl-C. Was der Agent tut, steht im Terminal.
 | ein drittes Mal | Stufe 3: ganze Erklärung (bis zehn Sätze) und eine **neue ähnliche Aufgabe** auf dem Papier |
 | du wechselst die Seite, bevor der Agent reagiert hat | nichts auf der fremden Seite; die Rückmeldung kommt, wenn du zurückkommst |
 | du zoomst oder scrollst | der Agent misst die Ansicht aus dem Vorschaubild; erst ein kleiner Probestrich, dann der Rest |
-| Code, ein neuronales Netz, BWL-Begriffe | wird gelesen und bewertet, aber schwächer gemessen als Mathe (Runde 6) |
+| Code, ein neuronales Netz, BWL-Begriffe | wird gelesen, aber zaghaft bewertet: qwen3.6 erkennt dort nur 20 % der Fehler (Runde 6) |
 | auf einem PDF-Aufgabenblatt | die gedruckte Aufgabe wird mitgelesen und nie markiert (Runde 7, am Gerät noch nicht gemessen) |
 
 ## Warum die Hilfe in Stufen kommt
@@ -52,6 +53,7 @@ hättest. Ein Foto der Seite reicht. Die Wächter-Ausgabe im Terminal hilft beim
 
 - Kein Stifttest am Gerät seit den neuen Prüfungen: Die Sperre war die ganze Nacht gesetzt. Der
   erste Lauf heute ist also der erste echte Test von Viewport und Probestrich.
+- Auf deiner echten Handschrift bleiben 2 kritische Fehler (Fehllesung 9/4 als 5/4; `(z+x)^4 =>` rot).
 - Ob der Probestrich über der Werkzeugleiste Werkzeuge umschaltet.
 - Wie lange die Notizen-App zum Speichern braucht (Wartezeit zwischen Probestrich und Rest).
 - PDF-Lage auf der Seite (eingepasst und zentriert ist eine Annahme).

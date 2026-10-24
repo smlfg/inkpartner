@@ -27,6 +27,22 @@ from .guards import GuardError
 SCREEN = viewport.SCREEN
 
 
+def _dbg_penpath(hypothesis_id: str, message: str, data: dict) -> None:
+    # region agent log
+    try:
+        import json
+        import time
+        path = "/Users/samuelfleig/Projects/01_WORK/InkpartnerPairProgramming/.cursor/debug-79b8ba.log"
+        line = json.dumps({"sessionId": "79b8ba", "hypothesisId": hypothesis_id,
+                           "location": "penpath.py:deliver", "message": message, "data": data,
+                           "timestamp": int(time.time() * 1000)})
+        with open(path, "a") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
+    # endregion
+
+
 def stroke_sig(s: dict) -> str:
     """Identity of a saved stroke: first and last point and length (the device's own coordinates)."""
     p, q = s["points"][0], s["points"][-1]
@@ -39,14 +55,15 @@ def new_strokes(before: list[dict], after: list[dict]) -> list[dict]:
 
 
 def to_screen(strokes: list[dict], vp, margin: float = 40.0):
-    """Page strokes -> screen strokes, or None if any point would leave the screen (minus margin)."""
+    """Page strokes -> screen strokes. A stroke that would leave the screen is left out, not sent.
+    None if nothing remains on screen."""
     out = []
     for s in strokes:
         pts = [list(vp.to_screen(p[0], p[1])) for p in s["points"]]
         if any(not (margin <= x <= SCREEN[0] - margin and margin <= y <= SCREEN[1] - margin) for x, y in pts):
-            return None
-        out.append({"points": penstream.densify(pts)})
-    return out
+            continue
+        out.append({k: v for k, v in s.items() if k != "points"} | {"points": penstream.densify(pts)})
+    return out or None
 
 
 def _bbox(pts):
@@ -142,20 +159,33 @@ class PenPath:
         before = self.dev.strokes(self.dev.fetch(rel))
         vp = self.viewport(rel, before)
         screen = to_screen(strokes, vp)
+        if screen is None and self.correction != (0.0, 0.0):
+            # The shift from the last miss throws every mark off the screen (live 25.10.: 1615 px,
+            # then R-OFFSCREEN). It cannot be applied; the raw fit is used instead.
+            self.correction = (0.0, 0.0)
+            vp = self.viewport(rel, before)
+            screen = to_screen(strokes, vp)
         if screen is None:
+            # region agent log
+            _dbg_penpath("I", "offscreen", {"ox": round(vp.ox), "oy": round(vp.oy),
+                                            "scale": round(vp.scale, 3), "score": round(vp.score, 2),
+                                            "source": getattr(self, "source", "?")})
+            # endregion
             raise GuardError("R-OFFSCREEN: the mark would leave the visible part of the page")
+        on_screen = [s for s in strokes if to_screen([s], vp)]
+        actions = [s.get("action") for s in on_screen]
         if getattr(self, "source", "") in ("pen", "remembered"):
             # the viewport is measured, not guessed, and no finger moved the page since: no probe.
             # The app saves pen strokes up to a minute late (live test 24.10.) - a probe would cost that.
             self.dev.send(screen)
             self.last = {"viewport": [round(vp.scale, 3), round(vp.ox), round(vp.oy), round(vp.score, 2)],
                          "source": self.source}
-            return {"status": "sent_direct", "strokes": len(screen), **self.last}
-        i = pick_probe(strokes, [s for s in before if s.get("author") == "user"])
+            return {"status": "sent_direct", "strokes": len(screen), "actions": actions, **self.last}
+        i = pick_probe(on_screen, [s for s in before if s.get("author") == "user"])
         self.dev.send([screen[i]])
         fresh, after = self._after(rel, before, 1)
         self.landed += fresh
-        got = landing(strokes[i], fresh)
+        got = landing(on_screen[i], fresh)
         self.last = {"viewport": [round(vp.scale, 3), round(vp.ox), round(vp.oy), round(vp.score, 2)],
                      "source": getattr(self, "source", "?")}
         if got is None:
@@ -164,6 +194,13 @@ class PenPath:
         dx, dy, ratio = got
         err = math.hypot(dx, dy)
         self.last["probe_error_px"] = round(err, 1)
+        # region agent log
+        _dbg_penpath("G", "probe landing", {"dx": round(dx), "dy": round(dy), "err": round(err),
+                                            "ratio": round(ratio, 3), "fresh": len(fresh),
+                                            "ox": round(vp.ox), "oy": round(vp.oy),
+                                            "scale": round(vp.scale, 3), "score": round(vp.score, 2),
+                                            "source": getattr(self, "source", "?")})
+        # endregion
         if err > self.tol or not 0.85 <= ratio <= 1.15:
             self.correction = (self.correction[0] + dx, self.correction[1] + dy)
             raise GuardError(f"R-PROBE: probe landed {err:.0f} px off (scale x{ratio:.2f}); "
@@ -176,4 +213,4 @@ class PenPath:
             fresh, after = self._after(rel, after, len(rest))
             self.landed += fresh
         self.correction = (0.0, 0.0)
-        return {"status": "sent_probed", "strokes": len(screen), **self.last}
+        return {"status": "sent_probed", "strokes": len(screen), "actions": actions, **self.last}

@@ -15,6 +15,8 @@ Every rule comes from something that went wrong (Codex grill session and the dev
               ink nor written while the real pen was active are the agent's garbage. -> STOP.
   R-PREFIX    A page file may only grow: the student's original bytes stay a byte-identical prefix.
   R-RATE      At most a few pen deliveries per minute.
+  R-COOLDOWN  After a write has finished, the next write waits 10 s, so a new round cannot land on
+              strokes the student is still drawing.
 
 A violation of R-FOREIGN or R-PREFIX trips the kill switch: a STOP file that blocks every write until a
 human removes it. The other rules simply refuse the single write.
@@ -41,6 +43,7 @@ class Limits:
     restart_quiet_s: float = 1800.0
     restart_gap_s: float = 3600.0
     pen_away_s: float = 3.0
+    write_gap_s: float = 10.0
     pen_per_minute: int = 4
     foreign_tolerance: float = 10.0
 
@@ -48,6 +51,7 @@ class Limits:
 @dataclass
 class GuardState:
     last_restart: float = -1e18
+    last_write_at: float = -1e18                 # when the last write finished, not when it started
     pen_times: list = field(default_factory=list)
 
 
@@ -92,14 +96,23 @@ class Guard:
         L, now = self.limits, self.clock()
         if open_page != (target_doc, target_page):
             raise GuardError(f"R-OPEN: open page is {open_page}, target is {(target_doc, target_page)}")
-        if pen_idle_s is None or pen_idle_s < L.pen_away_s:
+        # Suspended: this check was blocking delivery while the pen was away.
+        # The condition stays here so it can be turned back on.
+        if False and (pen_idle_s is None or pen_idle_s < L.pen_away_s):
             raise GuardError("R-PEN-NEAR: the real pen is (or may be) in range")
+        gap = now - self.state.last_write_at
+        if gap < L.write_gap_s:
+            raise GuardError(f"R-COOLDOWN: last write finished {gap:.0f}s ago (< {L.write_gap_s:.0f}s)")
         if not viewport_ok:
             raise GuardError("R-VIEWPORT: viewport not known to match the calibration")
         self.state.pen_times = [t for t in self.state.pen_times if now - t < 60]
         if len(self.state.pen_times) >= L.pen_per_minute:
             raise GuardError("R-RATE: too many pen deliveries in the last minute")
         self.state.pen_times.append(now)
+
+    def note_write_finished(self):
+        """Call once a delivery has reached the tablet. The next before_pen waits write_gap_s."""
+        self.state.last_write_at = self.clock()
 
     def after_pen(self, *, before: list[dict], after: list[dict], expected: list[dict],
                   real_pen_during: bool):

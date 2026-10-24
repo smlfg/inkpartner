@@ -1129,3 +1129,16 @@ class ViewportSideways(unittest.TestCase):
         x, y = vp.to_screen(1000, 500)
         self.assertAlmostEqual(x, true.to_screen(1000, 500)[0], delta=3)
         self.assertAlmostEqual(y, true.to_screen(1000, 500)[1], delta=3)
+
+
+class Calibration(unittest.TestCase):
+    def test_the_agents_own_l_gives_scroll_and_rotation(self):
+        from inkpartner import calibrate
+        from inkpartner.viewport import Viewport
+        true = Viewport(1.0, 2400.0, -500.0, 1.0, turn=1j)
+        sent = calibrate.l_shape()
+        saved = [list(true.to_page(x, y)) for x, y in sent]
+        vp, rms = calibrate.measure(sent, saved)
+        self.assertEqual(vp.turn, 1j)
+        self.assertLess(rms, 1)
+        self.assertAlmostEqual(vp.to_screen(*saved[0])[0], sent[0][0], delta=1)

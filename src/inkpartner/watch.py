@@ -156,6 +156,10 @@ class Tablet:
         mon = self.monitor
         if rel in cache and mon is not None and mon.last_touch < cache[rel][1]:
             return cache[rel][0], "remembered"
+        from . import calibrate                         # measured with the agent's own L
+        c = calibrate.load(rel)
+        if c and mon is not None and mon.last_touch < c[1]:
+            return c[0], "remembered"
         return None, None
 
     def live_strokes(self, rel: str, page_strokes: list[dict]) -> list[dict]:

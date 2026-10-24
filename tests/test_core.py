@@ -1130,3 +1130,58 @@ class Calibration(unittest.TestCase):
         self.assertEqual(vp.turn, 1j)
         self.assertLess(rms, 1)
         self.assertAlmostEqual(vp.to_screen(*saved[0])[0], sent[0][0], delta=1)
+
+
+class PenInject(unittest.TestCase):
+    def test_broken_pipe_keeps_cats_reason(self):
+        import subprocess
+        from unittest.mock import patch
+        import inkpartner.penstream as penstream
+        import inkpartner.watch as watch
+
+        class Stdin:
+            closed = False
+
+            def write(self, data):
+                raise BrokenPipeError(32, "Broken pipe")
+
+            def flush(self):
+                pass
+
+            def close(self):
+                self.closed = True
+
+        class Stderr:
+            closed = False
+
+            def read(self):
+                return b"cat: write error: Invalid argument\n"
+
+            def close(self):
+                self.closed = True
+
+        opened = {}
+
+        class Proc:
+            def __init__(self):
+                self.stdin = Stdin()
+                self.stderr = Stderr()
+
+            def wait(self, timeout=None):
+                return 1
+
+        def popen(cmd, stdin=None, stderr=None):
+            opened["stderr"] = stderr
+            return Proc()
+
+        mon = SimpleNamespace(injecting=False)
+        tablet = watch.Tablet("remarkable", monitor=mon)
+        tablet.pace_s = 0
+        with patch.object(watch.subprocess, "Popen", popen), \
+             patch.object(penstream, "build", lambda strokes, start=None: b"x"), \
+             patch.object(penstream, "reports", lambda stream: [b"rpt"]):
+            with self.assertRaises(RuntimeError) as caught:
+                tablet.send([{"points": [[1, 2]]}])
+        self.assertIs(opened["stderr"], subprocess.PIPE)
+        self.assertIn("Invalid argument", str(caught.exception))
+        self.assertFalse(mon.injecting)

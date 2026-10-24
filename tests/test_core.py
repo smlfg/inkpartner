@@ -18,6 +18,15 @@ def el(eid, text, y, **kw):
 
 
 class MathCheck(unittest.TestCase):
+    def test_number_chain_on_a_code_page(self):
+        # live test 24.10.: Quick sheet with Caesar code, then '3 + 4 = 8' - read right, never judged
+        els = [el("c1", "print(ord(text)) # unicode", 100), el("c2", "chang = ord(text) + 1", 200),
+               el("c3", "a = 01", 300), el("m", "3 + 4 = 8", 400)]
+        self.assertEqual(mathcheck.check_steps(els), {"m": "wrong"})   # print(...) no longer crashes
+        self.assertEqual(mathcheck.check_chains(els), {"m": "wrong"})
+        r = review.run([], subject="code", elements=els, proposals=[])
+        self.assertEqual([(a.element, a.verdict, a.mark) for a in r.accepted], [("m", "wrong", "circle")])
+
     def test_distributive_error_and_lines_built_on_it(self):
         els = [el("a", "3(x+2)=15", 100), el("b", "3x+2=15", 200), el("c", "3x=13", 300), el("d", "x = 13/3", 400)]
         self.assertEqual(mathcheck.check_steps(els), {"b": "wrong", "c": "wrong", "d": "wrong"})

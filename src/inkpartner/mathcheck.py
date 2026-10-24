@@ -30,8 +30,12 @@ def _parse(side: str):
     s = re.sub(r"\s+", "", s)
     if not s:
         raise ValueError("empty")
-    return parse_expr(s, transformations=standard_transformations
-                      + (implicit_multiplication_application, convert_xor))
+    from sympy import Basic
+    e = parse_expr(s, transformations=standard_transformations
+                   + (implicit_multiplication_application, convert_xor))
+    if not isinstance(e, Basic):         # 'print(ord(text))' on a code page evaluates to None
+        raise ValueError("not an expression")
+    return e
 
 
 def _variants(t: str) -> list[str]:
@@ -110,6 +114,16 @@ def _meaning(text: str, above: str = ""):
         return ("equation", sols, var)
     except Exception:
         return None
+
+
+NUMBERS_ONLY = re.compile(r"[\d\s.,+\-−*/·×:()^=]*\d[\d\s.,+\-−*/·×:()^]*=[\d\s.,+\-−*/·×:()^=]*")
+
+
+def check_chains(elements: list[Element]) -> dict[str, str]:
+    """Number chains only ('3 + 4 = 8'), for any subject. Live test 24.10.: '3 + 4 = 8' under code
+    on a Quick sheet - the page was 'code', sympy never ran, nothing was circled. Without letters
+    there is no variable to misread, and code lines ('a = 01', 'x = 3') are never touched."""
+    return check_steps([e for e in elements if NUMBERS_ONLY.fullmatch(e.text.strip())])
 
 
 def check_steps(elements: list[Element]) -> dict[str, str]:

@@ -45,7 +45,8 @@ def run(strokes: list[dict], *, model=None, subject: str | None = None, elements
     t = time.time()
     subject = subject or "math"
     profile = profiles.get(subject)
-    checked = mathcheck.check_steps(elements) if profile.deterministic == "sympy" else {}
+    checked = (mathcheck.check_steps(elements) if profile.deterministic == "sympy"
+               else mathcheck.check_chains(elements))
     if proposals is None:
         proposals = agent.judge(judge_model or model, strokes, elements, profile, checked=checked,
                                 background=background)

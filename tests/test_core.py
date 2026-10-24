@@ -1017,14 +1017,14 @@ class NoFlipFlop(unittest.TestCase):
 class OpenPage(unittest.TestCase):
     def test_a_notebook_opened_yesterday_is_found_through_its_saves(self):
         from inkpartner.watch import parse_open_page
-        log = ('22:53:11.079 rm.library.ext.open EntityOpen::open: EntityId{8194ca66} (open ...)\\n'
-               '22:53:11.173 rm.docworker loaded pageId=da85c793, version=6 (load...)\\n'
+        log = ('22:53:11.079 rm.library.ext.open EntityOpen::open: EntityId{8194ca66} (open ...)\n'
+               '22:53:11.173 rm.docworker loaded pageId=da85c793, version=6 (load...)\n'
                '15:35:40.619 rm.scenefile Scene written to: "/home/root/.local/share/remarkable/xochitl/'
-               '8194ca66/da85c793.rm.tmp"\\n')
+               '8194ca66/da85c793.rm.tmp"\n')
         self.assertEqual(parse_open_page(log), ("8194ca66", "da85c793"))
 
     def test_a_missing_page_file_is_not_the_open_page(self):
         from inkpartner.watch import parse_open_page
-        log = ('EntityOpen::open: EntityId{d1}\\nloaded pageId=p1, version=6\\n'
-               'loaded pageId=p2 - no file found (x)\\n')
+        log = ('EntityOpen::open: EntityId{d1}\nloaded pageId=p1, version=6\n'
+               'loaded pageId=p2 - no file found (x)\n')
         self.assertEqual(parse_open_page(log), ("d1", "p1"))

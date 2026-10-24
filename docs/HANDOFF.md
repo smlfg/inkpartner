@@ -59,6 +59,10 @@ pkill -f "inkpartner watch"; ssh remarkable 'killall cat'      # alte Leser weg
 PYTHONPATH=src nohup ../venv/bin/python -u -m inkpartner watch --model ollama:qwen3.6:35b-a3b > /tmp/inkp/watch.log 2>&1 &
 grep -v "Some data" /tmp/inkp/watch.log | tail                    # timing-Zeile zeigt read/judge/teach
 ```
+- **`/tmp/inkp` überlebt keinen Mac-Neustart.** Gesichert (24.10.) nach
+  `~/Projects/01_WORK/Remarkable/inkpartner-data/2026-10-24/`: alle `sim-out-*`, `real/` (Samuels
+  echte Seiten + `truth.json`), Logs, Skripte. Die Geräte-Skripte liegen auch in `tools/device/`.
+  Fehlt die venv: `python3 -m venv /tmp/inkp/venv && /tmp/inkp/venv/bin/pip install rmscene pillow numpy sympy pypdfium2`.
 - Sperre/Not-Aus: `~/.cache/inkpartner/STOP` (am 24.10. gelöscht; legt sich bei R-FOREIGN neu an).
 - Zustand pro Seite: `~/.cache/inkpartner/state.json` (delivered, own_sigs, verdicts, expected).
 - Tablet: `ssh remarkable` (10.11.99.1, USB). Stift `event2`, Touch `event3`. Firmware 20261009.

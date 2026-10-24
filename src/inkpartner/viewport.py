@@ -58,9 +58,19 @@ def page_mask(strokes, scale: float, ox: float, oy: float, size=(192, 256), k: f
     return (np.asarray(img) > 0).astype(np.float32)
 
 
-def estimate(strokes, png: bytes, scales=None, size=(192, 256)) -> Viewport:
-    """Best (scale, offset) by FFT cross-correlation of the two ink masks, over a range of scales."""
+def estimate(strokes, png: bytes, scales=None, size=(192, 256), refine=True) -> Viewport:
+    """Best (scale, offset) by FFT cross-correlation of the two ink masks, over a range of scales.
+    Coarse on a small mask, then refined at the screenshot's full size with fine scale steps:
+    round 4 measured 6-14 px error at zoom 1.5 from the coarse pass alone (one mask pixel = 8 screen px)."""
     import numpy as np
+    if refine:
+        from PIL import Image
+        coarse = estimate(strokes, png, scales, size, refine=False)
+        if coarse.score <= 0:
+            return coarse
+        full = Image.open(io.BytesIO(png)).size
+        fine = [round(coarse.scale + 0.0025 * i, 4) for i in range(-12, 13)]
+        return estimate(strokes, png, fine, full, refine=False)
     target = ink_mask(png, size)
     if target.sum() < 20 or not strokes:
         return Viewport(1.0, 0.0, 0.0, 0.0)

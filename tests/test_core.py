@@ -656,11 +656,8 @@ class PenChannelIsGuarded(unittest.TestCase):
 
             def open_page(self):
                 return ("other-doc", "other-page")
-        tab = T("fake", guard=guards.Guard(os.path.join(tempfile.mkdtemp(), "STOP"), log=lambda *a: None),
-                trust_viewport=True)
-        pen = watch.PenChannel.__new__(watch.PenChannel)
-        pen.tablet, pen.device = tab, "event2"
-        pen.cal = {"scale": 1, "offset_x": 0, "offset_y": 0}
+        tab = T("fake", guard=guards.Guard(os.path.join(tempfile.mkdtemp(), "STOP"), log=lambda *a: None))
+        pen = watch.PenChannel(tab)
         with self.assertRaises(guards.GuardError):
             pen.deliver(marks.underline([100, 100, 200, 120]), "doc/page.rm")
         self.assertFalse(any("/dev/input" in c for c in calls))
@@ -817,3 +814,87 @@ class Snap(unittest.TestCase):
         geometry.snap(els, a + b)
         self.assertEqual([round(v) for v in els[1].bbox], [round(v) for v in true_b])
         self.assertEqual([round(v) for v in els[0].bbox], [round(v) for v in marks.bbox_of(a)])
+
+
+class PenPathRound4(unittest.TestCase):
+    """Writing through a zoomed / scrolled screen with a possibly stale screenshot (simpen.py)."""
+
+    def _tab(self, view, thumb):
+        import random
+        from inkpartner import simpen
+        from inkpartner.viewport import Viewport
+        tab = simpen.ScreenTablet(tempfile.mkdtemp(), Viewport(*view, 1.0), Viewport(*thumb, 1.0))
+        plan = simpen.build_page(tab, 2, random.Random(4))
+        return tab, plan
+
+    def test_a_stale_screenshot_costs_one_probe_stroke_then_the_marks_land(self):
+        from inkpartner import penpath, simpen, guards
+        tab, plan = self._tab((1, 0, -150), (1, 0, 0))
+        before = tab.strokes()
+        path = penpath.PenPath(simpen.Device(tab), wait_s=0, tries=1, sleep=lambda s: None)
+        with self.assertRaises(guards.GuardError) as e:
+            path.deliver(plan, "d/p.rm")
+        self.assertIn("R-PROBE", str(e.exception))
+        self.assertEqual(len(path.landed), 1)            # only the probe went out
+        path.deliver(plan, "d/p.rm")
+        states = verify.verify(plan, before, tab.strokes())
+        self.assertTrue(all(v == "confirmed" for v in states.values()), states)
+
+    def test_a_mark_off_the_screen_is_not_sent(self):
+        from inkpartner import penpath, simpen, guards
+        tab, plan = self._tab((2.0, -1300, -200), (2.0, -1300, -200))
+        n = len(tab.strokes())
+        path = penpath.PenPath(simpen.Device(tab), wait_s=0, tries=1, sleep=lambda s: None)
+        with self.assertRaises(guards.GuardError) as e:
+            path.deliver(plan, "d/p.rm")
+        self.assertIn("R-OFFSCREEN", str(e.exception))
+        self.assertEqual(len(tab.strokes()), n)
+
+    def test_the_probe_is_the_stroke_with_most_paper_around_it(self):
+        from inkpartner import penpath
+        ink = [{"points": [[100, 100], [200, 100]]}]
+        near = {"points": [[210, 100], [240, 110]]}
+        far = {"points": [[600, 600], [630, 610]]}
+        self.assertEqual(penpath.pick_probe([near, far], ink), 1)
+
+    def test_watcher_reads_its_own_pen_strokes_as_agent_ink(self):
+        from inkpartner import simpen, penpath, readers
+        from inkpartner.watch import Watcher
+        from inkpartner.elements import Element
+        from inkpartner.viewport import Viewport
+        import random
+        tab = simpen.ScreenTablet(tempfile.mkdtemp(), Viewport(1, 0, -150, 1.0), Viewport(1, 0, 0, 1.0))
+        seen = []
+
+        def reader(strokes):
+            lines = readers.cluster_lines([s for s in strokes if s.get("author") == "user"])
+            seen.append(len(lines))
+            texts = ["3(x+2)=15", "3x+2=15"]
+            return "math", [Element(f"e{i}", "formula", marks.bbox_of(l), texts[i % 2], confidence=0.95)
+                            for i, l in enumerate(lines)]
+
+        class Judge:
+            name = used = "fake"
+
+            def json(self, images, prompt, schema):
+                return {"actions": []}
+        pen = penpath.PenPath(simpen.Device(tab), wait_s=0, tries=1, sleep=lambda s: None)
+        w = Watcher(tab, Judge(), subject="math", pen=pen, log=lambda *a: None, reader=reader,
+                    judge_model=Judge(), state_file=os.path.join(tab.dir, "state.json"))
+        w.verify_wait_s, w.verify_tries = 0, 1
+        w.tick()
+        rng = random.Random(3)
+        for i, t in enumerate(["3(x+2)=15", "3x+2=15"]):
+            tab.student_writes(sim_handwrite(t, (200, 220 + 180 * i), 80, rng))
+        for _ in range(6):                                # review, probe misses, re-review, deliver
+            tab.clock += 10
+            w.tick()
+        st = w.pages[tab.REL]
+        self.assertTrue(st.own_sigs)                      # the probe and the marks are remembered
+        self.assertTrue(all(n == 2 for n in seen), seen)  # the reader never took them for writing
+        self.assertTrue(st.delivered)
+
+
+def sim_handwrite(*a):
+    from inkpartner import sim
+    return sim.handwrite(*a)

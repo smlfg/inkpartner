@@ -61,3 +61,34 @@ den Zeichen des Agenten.
 | 1 | Gekritzel als „mwwv“ gelesen, als wäre es lesbar | `agree:`, zwei Lesungen; unleserlich → Wellenlinie per Regel |
 | 1 | Modelle antworten in LaTeX (`z^{4x}`) | sympy liest geschweifte Klammern |
 | 1 | Auswertung zählte echte Reaktionen nicht (Boxen daneben) | Zuordnung über den gelesenen Text; Box-Treffer als eigene Zahl |
+
+## Runde 4: Zurückschreiben (24.10.)
+
+Kein Modell, nur der Rückweg: eine feste Seite, feste Zeichen, ein simulierter Bildschirm mit Zoom,
+Scrollen und **veraltetem Vorschaubild** (du hast gescrollt, ohne zu schreiben: keine Speicherung,
+kein neues Bild). `python -m inkpartner pensim`.
+
+Ablauf (`penpath.py`): Ansicht aus dem Vorschaubild schätzen → ragt ein Zeichen aus dem Bildschirm,
+wartet es → **Probestrich** (der Strich mit dem meisten freien Papier drumherum) → Seite zurücklesen,
+messen wo er gelandet ist → passt er auf 8 px, folgt der Rest, nach der Messung ausgerichtet;
+sonst Stopp, und die Messung korrigiert den nächsten Versuch.
+
+| Kennzahl | Ziel | Messung |
+|---|---|---|
+| richtige Entscheidung (zustellen / warten) | 100 % | 13 von 13 |
+| zugestellt, wo zustellbar | ≥ 95 % | 11 von 11 |
+| Abweichung der Zeichen | ≤ 8 px | 1,1 px im Mittel |
+| Streustriche auf deiner Schrift | 0 | 0 |
+| Streustriche insgesamt | so wenig wie möglich | 6, je einer pro veraltetem Bild |
+
+| Befund | Ursache | Behoben durch |
+|---|---|---|
+| Zoom 1,5 und 0,8: Zeichen 6–14 px daneben | Ansicht nur grob geschätzt (ein Maskenpixel = 8 Bildschirmpixel) | Feinsuche im vollen Vorschaubild, Maßstab in 0,0025-Schritten |
+| kleine Restabweichung nach gutem Probestrich | Schätzung nie ganz genau | der Rest wird nach der Messung des Probestrichs ausgerichtet |
+| veraltetes Bild: ganze Notiz wäre 150–340 px daneben gelandet | Vorschaubild zeigt die alte Ansicht | Probestrich zuerst; ein kleiner Streustrich statt einer falschen Notiz |
+| Probestrich könnte auf deiner Schrift landen | Probe war einfach der kleinste Strich | Probe = Strich mit dem meisten freien Papier drumherum |
+| eigene Stiftstriche würden beim nächsten Lesen als deine Schrift gelesen | Stiftweg schreibt in deine Ebene | der Wächter merkt sich jeden eigenen Strich und liest ihn als Agententinte |
+
+**Nicht belegt:** Wie schnell der Notizen-App speichert (Wartezeit zwischen Probe und Rest), ob
+Stiftsignale über der Werkzeugleiste Werkzeuge umschalten, und wie oft das Vorschaubild in echt
+veraltet ist. Das klären die Gerätetests (`python -m inkpartner pentest`).

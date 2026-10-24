@@ -14,7 +14,7 @@ it left behind; a change that only shows that hash is the agent's echo, not the 
 How to write back:
 - pen  (V-Pen, algebra-agent/inject.py): pen events into the open page. No restart, never throws the
   student out. Price: the ink takes the colour of the pen currently selected and lands in the
-  student's layer. Needs the viewport calibration (~/.config/penecho/live_viewport.json).
+  student's layer. The viewport comes from the page thumbnail, a probe stroke checks it (penpath.py).
 - file (append an agent layer + restart the notes app): colour and own layer, but a restart - and a
   restart LOGS THE STUDENT OUT (seen 2026-10-23: back to the passcode screen). Last resort only:
   off unless --allow-restart, then only after `restart_quiet_s` (default 30 min) without any change
@@ -37,8 +37,6 @@ from . import page as pagemod
 from . import review, verify
 
 XOCHITL = "/home/root/.local/share/remarkable/xochitl"
-CALIBRATION = Path(os.environ.get("PENECHO_LIVE_CALIBRATION",
-                                  Path.home() / ".config/penecho/live_viewport.json"))
 
 
 def sha(data: bytes) -> str:
@@ -49,14 +47,14 @@ class Tablet:
     """Everything that touches the tablet, over SSH. Reads are free; writes are two: pen events into
     /dev/input/<pen> (pen path) and one page file + restart (file path)."""
 
-    def __init__(self, host: str = "remarkable", guard=None, monitor=None, trust_viewport=False,
-                 allow_restart=False):
+    def __init__(self, host: str = "remarkable", guard=None, monitor=None, allow_restart=False,
+                 device: str = "event2"):
         from .guards import Guard
         self.host = host
         self.guard = guard or Guard(Path.home() / ".cache/inkpartner/STOP")
         self.monitor = monitor
-        self.trust_viewport = trust_viewport          # a human states the page is unzoomed (no detection yet)
         self.allow_restart = allow_restart
+        self.device = device
 
     def ssh(self, cmd: str, data: bytes | None = None, timeout: float = 30) -> bytes:
         r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", self.host, cmd],
@@ -80,6 +78,34 @@ class Tablet:
 
     def fetch(self, rel: str) -> bytes:
         return self.ssh(f"cat {shlex.quote(XOCHITL + '/' + rel)}")
+
+    def thumbnail(self, rel: str) -> bytes | None:
+        """The notes app's picture of the page as displayed (written ~20 s after a save)."""
+        doc, page = rel.split("/")[0], rel.split("/")[1].removesuffix(".rm")
+        try:
+            png = self.ssh(f"cat {shlex.quote(f'{XOCHITL}/{doc}.thumbnails/{page}.png')}")
+        except RuntimeError:
+            return None
+        return png or None
+
+    def strokes(self, data: bytes) -> list[dict]:
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, "page.rm")
+            Path(p).write_bytes(data)
+            return pagemod.read_strokes(p)
+
+    def send(self, screen_strokes: list[dict]):
+        """Pen events, screen pixels. `cat` reports EINVAL on this device even when every event
+        arrives (algebra-agent, 20.10.): the exit code says nothing - only reading back does."""
+        from . import penstream
+        mon = self.monitor
+        if mon:
+            mon.injecting = True
+        try:
+            self.ssh(f"cat > /dev/input/{shlex.quote(self.device)}", data=penstream.build(screen_strokes), timeout=60)
+        finally:
+            if mon:
+                mon.injecting = False
 
     def name(self, rel: str) -> str:
         doc = rel.split("/")[0]
@@ -117,36 +143,23 @@ class Tablet:
 
 class PenChannel:
     """Pen events into the open page (idea and device facts from algebra-agent's V-Pen; the event
-    stream itself is penstream.py, rebuilt after firmware 20261009 stopped accepting the old one).
-    Strokes in page pixels; the viewport calibration maps them to the screen."""
+    stream is penstream.py, the placement and probe penpath.py). Guarded before every delivery."""
 
-    def __init__(self, tablet: Tablet, device: str | None = None):
+    def __init__(self, tablet):
+        from .penpath import PenPath
         self.tablet = tablet
-        self.cal = json.loads(CALIBRATION.read_text())   # no calibration -> no pen path (raises)
-        self.device = device or self.cal.get("device", "event2")
+        self.path = PenPath(tablet)
+
+    @property
+    def landed(self):
+        return self.path.landed
 
     def deliver(self, strokes: list[dict], rel: str) -> dict:
-        from . import penstream
         doc, page = rel.split("/")[0], rel.split("/")[1].removesuffix(".rm")
         mon = self.tablet.monitor
         self.tablet.guard.before_pen(target_doc=doc, target_page=page, open_page=self.tablet.open_page(),
-                                     pen_idle_s=mon.idle_s() if mon else None,
-                                     viewport_ok=self.tablet.trust_viewport)
-        sx, sy = float(self.cal["scale"]), float(self.cal.get("scale_y", self.cal["scale"]))
-        ox, oy = float(self.cal["offset_x"]), float(self.cal["offset_y"])
-        screen = [{"points": penstream.densify([[p[0] * sx + ox, p[1] * sy + oy] for p in s["points"]])}
-                  for s in strokes]
-        stream = penstream.build(screen)
-        # `cat` reports EINVAL on this device even when every event arrives (algebra-agent, 20.10.):
-        # the exit code says nothing - only reading the page back does.
-        if mon:
-            mon.injecting = True
-        try:
-            self.tablet.ssh(f"cat > /dev/input/{shlex.quote(self.device)}", data=stream, timeout=60)
-        finally:
-            if mon:
-                mon.injecting = False
-        return {"status": "sent_unverified", "bytes": len(stream), "strokes": len(screen)}
+                                     pen_idle_s=mon.idle_s() if mon else None, viewport_ok=True)
+        return self.path.deliver(strokes, rel)
 
 
 class PenMonitor:
@@ -195,6 +208,7 @@ class PageState:
     own_sha: str = ""                                   # what the agent itself left on the page
     delivered: set[str] = field(default_factory=set)
     pending: dict | None = None                         # feedback that could not be written yet
+    own_sigs: set[str] = field(default_factory=set)     # pen-path strokes: agent ink in the student's layer
 
 
 class Watcher:
@@ -229,14 +243,15 @@ class Watcher:
             data = json.loads(self.state_file.read_text())
             for rel, d in data.items():
                 self.pages[rel] = PageState(tuple(d["stamp"]), 0.0, d["reviewed_sha"], d["own_sha"],
-                                            set(d["delivered"]))
+                                            set(d["delivered"]), own_sigs=set(d.get("own_sigs", [])))
         except (OSError, ValueError, KeyError):
             pass
 
     def _save(self):
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
         self.state_file.write_text(json.dumps({rel: {"stamp": p.stamp, "reviewed_sha": p.reviewed_sha,
-                                                     "own_sha": p.own_sha, "delivered": sorted(p.delivered)}
+                                                     "own_sha": p.own_sha, "delivered": sorted(p.delivered),
+                                                     "own_sigs": sorted(p.own_sigs)}
                                                for rel, p in self.pages.items()}))
 
     # ------------------------------------------------------------------- loop
@@ -278,6 +293,9 @@ class Watcher:
             src = os.path.join(tmp, "page.rm")
             Path(src).write_bytes(data)
             strokes = pagemod.read_strokes(src)
+            if st.own_sigs:                             # the pen path's marks are not the student's writing
+                from .penpath import stroke_sig
+                strokes = [dict(x, author="agent") if stroke_sig(x) in st.own_sigs else x for x in strokes]
             t0 = time.time()
             r = review.run(strokes, model=self.model, subject=self.subject, delivered=st.delivered,
                            reader=self.reader, judge_model=self.judge_model)
@@ -317,6 +335,9 @@ class Watcher:
             except GuardError as e:
                 self.log(f"  pen refused: {e}")
                 sent = None
+            finally:
+                from .penpath import stroke_sig
+                st.own_sigs |= {stroke_sig(x) for x in getattr(self.pen, "landed", [])}
             if sent is None:
                 st.pending = {"strokes": list(r.strokes), "base_sha": h, "speech": "", "since": now}
                 self.retry_pending(rel, st, now)
@@ -400,11 +421,11 @@ class Watcher:
             self.log("  spoken while writing is not possible")
 
 
-def run(host="remarkable", model=None, subject=None, interval_s=3.0, once=False, trust_viewport=False, **kw):
+def run(host="remarkable", model=None, subject=None, interval_s=3.0, once=False, **kw):
     """Loop forever (or until the first review with --once). Stops for good on the kill switch."""
     from . import models
     from .guards import Stopped
-    tablet = Tablet(host, monitor=PenMonitor(host), trust_viewport=trust_viewport,
+    tablet = Tablet(host, monitor=PenMonitor(host),
                     allow_restart=kw.get("allow_restart", False))
     w = Watcher(tablet, models.get(model), subject=subject, **kw)
     w.log(f"watching {host} every {interval_s}s with {w.model.name}; pen path: {'yes' if w.pen else 'no'}")
@@ -418,3 +439,37 @@ def run(host="remarkable", model=None, subject=None, interval_s=3.0, once=False,
         except Exception as e:
             w.log(f"error: {e}")
         time.sleep(interval_s)
+
+
+def pentest(host="remarkable", wait_s=2.0) -> dict:
+    """One guarded pen delivery: a small check in free space next to the last line of the open page.
+    Every guard applies (open page, pen away, kill switch, rate); the probe goes first; the page is
+    read back. For the supervised device tests before the watcher may run alone."""
+    from . import layout, marks
+    tablet = Tablet(host, monitor=PenMonitor(host))
+    time.sleep(6)                                       # the monitor must watch a while: pen away?
+    op = tablet.open_page()
+    if op is None:
+        return {"status": "no open page"}
+    rel = f"{op[0]}/{op[1]}.rm"
+    before = tablet.strokes(tablet.fetch(rel))
+    user = [s for s in before if s.get("author") == "user"]
+    if not user:
+        return {"status": "page has no writing to place the check next to"}
+    last = max(user, key=lambda s: max(p[1] for p in s["points"]))
+    line = [s for s in user if abs(max(p[1] for p in s["points"]) - max(p[1] for p in last["points"])) < 80]
+    spot = layout.place((70, 70), marks.bbox_of(line), layout.Occupancy(before, pagemod.PAGE_W, pagemod.PAGE_H))
+    plan = [{**s, "action": "check"} for s in marks.check(spot["rect"])]
+    pen = PenChannel(tablet)
+    pen.path.wait_s = wait_s
+    from .guards import GuardError
+    try:
+        sent = pen.deliver(plan, rel)
+    except GuardError as e:
+        return {"status": "refused", "why": str(e), **pen.path.last, "landed": len(pen.landed)}
+    time.sleep(wait_s)
+    after = tablet.strokes(tablet.fetch(rel))
+    tablet.guard.after_pen(before=before, after=after, expected=plan,
+                           real_pen_during=False)
+    return {"status": "verified" if all(v == "confirmed" for v in verify.verify(plan, before, after).values())
+            else "not verified", "page": rel, "target": [round(v) for v in spot["rect"]], **sent}

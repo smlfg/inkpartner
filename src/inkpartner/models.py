@@ -53,7 +53,8 @@ class Ollama:
             self.host = "http://" + self.host
 
     def json(self, images: list[bytes], prompt: str, schema: dict) -> dict:
-        body = {"model": self.model, "stream": False, "format": schema, "think": False,
+        # keep the model in memory: reloading 23 GB after Ollama's default 5 idle minutes costs seconds
+        body = {"model": self.model, "stream": False, "format": schema, "think": False, "keep_alive": "60m",
                 "options": {"temperature": 0},
                 "messages": [{"role": "user", "content": prompt,
                               "images": [base64.b64encode(i).decode() for i in images] if self.images else []}]}

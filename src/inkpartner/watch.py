@@ -121,6 +121,15 @@ class Tablet:
             cache[doc] = self.ssh(f"cat {XOCHITL}/{doc}.pdf", timeout=120)
         return bgmod.render_pdf_page(cache[doc], info["pdf_page"])
 
+    def pen_viewport(self, page_strokes: list[dict]):
+        """Viewport from the student's own last strokes: screen (pen events) against page (file)."""
+        from . import viewport
+        mon = self.monitor
+        if not mon or not mon.reader.strokes:
+            return None
+        user = [s for s in page_strokes if s.get("author") == "user"]
+        return viewport.from_pen([pts for _, pts in mon.reader.strokes], user)
+
     def strokes(self, data: bytes) -> list[dict]:
         with tempfile.TemporaryDirectory() as tmp:
             p = os.path.join(tmp, "page.rm")
@@ -195,7 +204,9 @@ class PenMonitor:
 
     def __init__(self, host: str, device: str = "event2"):
         import threading
+        from .penstream import Reader
         self.host, self.device = host, device
+        self.reader = Reader()                          # the student's strokes in screen pixels
         self.last_real: float | None = None
         self.started = time.time()
         self.injecting = False
@@ -215,6 +226,7 @@ class PenMonitor:
                 now = time.time()
                 self.last_real = now
                 self.activity = [t for t in self.activity if now - t < 3600] + [now]
+                self.reader.feed(chunk)
 
     def idle_s(self) -> float | None:
         """Seconds since the real pen last did anything; None until the monitor has watched a while."""
@@ -537,35 +549,44 @@ def run(host="remarkable", model=None, subject=None, interval_s=3.0, once=False,
         time.sleep(interval_s)
 
 
-def pentest(host="remarkable", wait_s=2.0) -> dict:
-    """One guarded pen delivery: a small check in free space next to the last line of the open page.
-    Every guard applies (open page, pen away, kill switch, rate); the probe goes first; the page is
-    read back. For the supervised device tests before the watcher may run alone."""
+def pentest(host="remarkable", wait_s=2.0, write_timeout=120.0, log=print) -> dict:
+    """One guarded pen delivery: a small check in free space next to the line the student writes
+    now. Waits for that line: its pen events (screen) and its saved strokes (page) give the viewport.
+    Every guard applies; the probe goes first; the page is read back."""
     from . import layout, marks
     tablet = Tablet(host, monitor=PenMonitor(host))
-    time.sleep(6)                                       # the monitor must watch a while: pen away?
+    time.sleep(3)
     op = tablet.open_page()
     if op is None:
         return {"status": "no open page"}
     rel = f"{op[0]}/{op[1]}.rm"
+    log(f"open page: {tablet.name(rel)}. Write a short line now (two words), then put the pen away.")
+    t0 = time.time()
+    while not tablet.monitor.reader.strokes and time.time() - t0 < write_timeout:
+        time.sleep(1)
+    if not tablet.monitor.reader.strokes:
+        return {"status": "nothing written - no viewport from the pen"}
+    while (tablet.monitor.idle_s() or 0) < 6:            # the line is finished, the app has saved it
+        time.sleep(1)
     before = tablet.strokes(tablet.fetch(rel))
     user = [s for s in before if s.get("author") == "user"]
-    if not user:
-        return {"status": "page has no writing to place the check next to"}
-    last = max(user, key=lambda s: max(p[1] for p in s["points"]))
-    line = [s for s in user if abs(max(p[1] for p in s["points"]) - max(p[1] for p in last["points"])) < 80]
+    n = min(len(tablet.monitor.reader.strokes), len(user))
+    line = user[-n:]                                     # the strokes just written, newest in the file
     spot = layout.place((70, 70), marks.bbox_of(line), layout.Occupancy(before, pagemod.PAGE_W, pagemod.PAGE_H))
     plan = [{**s, "action": "check"} for s in marks.check(spot["rect"])]
     pen = PenChannel(tablet)
     pen.path.wait_s = wait_s
     from .guards import GuardError
+    vp = tablet.pen_viewport(before)
+    info = {"page": rel, "pen_strokes": len(tablet.monitor.reader.strokes), "line": [round(v) for v in marks.bbox_of(line)],
+            "pen_viewport": vp and [round(vp.scale, 3), round(vp.ox), round(vp.oy), vp.score],
+            "target": [round(v) for v in spot["rect"]]}
     try:
         sent = pen.deliver(plan, rel)
     except GuardError as e:
-        return {"status": "refused", "why": str(e), **pen.path.last, "landed": len(pen.landed)}
+        return {"status": "refused", "why": str(e), **info, **pen.path.last, "landed": len(pen.landed)}
     time.sleep(wait_s)
     after = tablet.strokes(tablet.fetch(rel))
-    tablet.guard.after_pen(before=before, after=after, expected=plan,
-                           real_pen_during=False)
+    tablet.guard.after_pen(before=before, after=after, expected=plan, real_pen_during=False)
     return {"status": "verified" if all(v == "confirmed" for v in verify.verify(plan, before, after).values())
-            else "not verified", "page": rel, "target": [round(v) for v in spot["rect"]], **sent}
+            else "not verified", **info, **sent}

@@ -77,3 +77,39 @@ def densify(points, step: float = 4.0):
         n = max(1, int(((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5 / step))
         out += [[a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n] for k in range(n)]
     return out + [list(points[-1][:2])] if points else out
+
+
+class Reader:
+    """The other direction: raw events from /dev/input (the real pen) -> strokes in screen pixels.
+
+    Fed in chunks as they arrive. Round 4 on the device (2026-10-24): the page thumbnail shows the
+    top of the page, not the scrolled view - but the pen reports where it touches the SCREEN, and
+    the notes app saves the same stroke in PAGE pixels. The two together are the viewport."""
+
+    def __init__(self):
+        self.buf = b""
+        self.x = self.y = 0
+        self.down = False
+        self.points: list = []
+        self.strokes: list[tuple[float, list]] = []      # (time of pen-up, screen points)
+
+    def feed(self, data: bytes, keep: int = 20):
+        self.buf += data
+        size = struct.calcsize(FMT)
+        n = len(self.buf) // size
+        for i in range(n):
+            sec, usec, etype, code, value = struct.unpack_from(FMT, self.buf, i * size)
+            if etype == EV_ABS and code == ABS_X:
+                self.x = value
+            elif etype == EV_ABS and code == ABS_Y:
+                self.y = value
+            elif etype == EV_KEY and code == BTN_TOUCH:
+                if value and not self.down:
+                    self.down, self.points = True, []
+                elif not value and self.down:
+                    self.down = False
+                    if len(self.points) > 1:
+                        self.strokes = (self.strokes + [(sec + usec / 1e6, self.points)])[-keep:]
+            elif etype == EV_SYN and self.down:
+                self.points.append([self.x / DIGITIZER[0] * PAGE[0], self.y / DIGITIZER[1] * PAGE[1]])
+        self.buf = self.buf[n * size:]

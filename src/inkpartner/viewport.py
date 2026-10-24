@@ -100,3 +100,48 @@ def estimate(strokes, png: bytes, scales=None, size=(192, 256), refine=True) -> 
     near = np.maximum.reduce([np.roll(np.roll(fit, a, 0), b, 1) for a in (-1, 0, 1) for b in (-1, 0, 1)])
     best.score = float((near * target).sum() / max(1.0, target.sum()))
     return best
+
+
+def _resample(pts, n=16):
+    """n points evenly spaced along the stroke (pen reports and saved points differ in density)."""
+    import math
+    d = [0.0]
+    for a, b in zip(pts, pts[1:]):
+        d.append(d[-1] + math.hypot(b[0] - a[0], b[1] - a[1]))
+    if d[-1] == 0:
+        return [list(pts[0][:2])] * n
+    out, j = [], 0
+    for k in range(n):
+        t = d[-1] * k / (n - 1)
+        while j < len(d) - 2 and d[j + 1] < t:
+            j += 1
+        f = 0 if d[j + 1] == d[j] else (t - d[j]) / (d[j + 1] - d[j])
+        out.append([pts[j][0] + f * (pts[j + 1][0] - pts[j][0]), pts[j][1] + f * (pts[j + 1][1] - pts[j][1])])
+    return out
+
+
+def from_pen(screen_strokes, page_strokes, n: int = 4, max_rms: float = 8.0):
+    """Viewport from the student's last strokes, seen twice: on the screen (pen events) and on the
+    page (saved file). Pairs the last n of each in order; least squares for one scale and an offset.
+    None when there is too little to compare or the fit is poor (a stroke missing on one side)."""
+    k = min(n, len(screen_strokes), len(page_strokes))
+    if k < 1:
+        return None
+    P, Q = [], []
+    for sp, pp in zip(screen_strokes[-k:], page_strokes[-k:]):
+        Q += _resample(sp)
+        P += _resample(pp["points"])
+    mx = sum(p[0] for p in P) / len(P); my = sum(p[1] for p in P) / len(P)
+    qx = sum(q[0] for q in Q) / len(Q); qy = sum(q[1] for q in Q) / len(Q)
+    var = sum((p[0] - mx) ** 2 + (p[1] - my) ** 2 for p in P)
+    if var < 100:                                       # a dot: no scale to measure
+        return None
+    cov = sum((p[0] - mx) * (q[0] - qx) + (p[1] - my) * (q[1] - qy) for p, q in zip(P, Q))
+    s = cov / var
+    vp = Viewport(s, qx - s * mx, qy - s * my, 0.0)
+    rms = (sum((vp.to_screen(p[0], p[1])[0] - q[0]) ** 2 + (vp.to_screen(p[0], p[1])[1] - q[1]) ** 2
+               for p, q in zip(P, Q)) / len(P)) ** 0.5
+    if not 0.3 < s < 4 or rms > max_rms:
+        return None
+    vp.score = round(1.0 - rms / max_rms, 3)
+    return vp

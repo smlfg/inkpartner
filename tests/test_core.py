@@ -1028,3 +1028,25 @@ class OpenPage(unittest.TestCase):
         log = ('EntityOpen::open: EntityId{d1}\nloaded pageId=p1, version=6\n'
                'loaded pageId=p2 - no file found (x)\n')
         self.assertEqual(parse_open_page(log), ("d1", "p1"))
+
+
+class ViewportFromPen(unittest.TestCase):
+    def test_pen_events_and_saved_strokes_give_zoom_and_scroll(self):
+        import random
+        from inkpartner import penstream, viewport, sim
+        from inkpartner.viewport import Viewport
+        true = Viewport(1.4, -120.0, -6900.0, 1.0)            # zoomed in, scrolled far down
+        page = sim.handwrite("ab", (300, 5200), 80, random.Random(2))
+        screen = [{"points": [list(true.to_screen(p[0], p[1])) for p in s["points"]]} for s in page]
+        r = penstream.Reader()
+        r.feed(penstream.build(screen, start=0.0))
+        vp = viewport.from_pen([pts for _, pts in r.strokes], page)
+        self.assertIsNotNone(vp)
+        self.assertAlmostEqual(vp.scale, 1.4, delta=0.02)
+        self.assertAlmostEqual(vp.oy, -6900, delta=15)
+
+    def test_a_missing_stroke_on_one_side_gives_no_viewport(self):
+        from inkpartner import viewport
+        a = {"points": [[0, 0], [100, 0]]}
+        b = {"points": [[0, 0], [0, 100]]}
+        self.assertIsNone(viewport.from_pen([[[500, 500], [600, 500]], [[900, 900], [905, 1300]]], [a, b]))

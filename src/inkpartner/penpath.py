@@ -104,6 +104,14 @@ class PenPath:
         self.last: dict = {}
 
     def viewport(self, rel, page_strokes):
+        # first choice: the student's last strokes, seen on the screen and on the page (exact, and it
+        # follows scrolling - the thumbnail shows the top of the page, found on the device 24.10.)
+        pen = getattr(self.dev, "pen_viewport", None)
+        vp = pen(page_strokes) if pen else None
+        if vp is not None:
+            self.source = "pen"
+            return vp
+        self.source = "thumbnail"
         png = self.dev.thumbnail(rel)
         if png is None:
             raise GuardError("R-VIEWPORT: no screenshot of the open page")
@@ -141,7 +149,8 @@ class PenPath:
         fresh, after = self._after(rel, before, 1)
         self.landed += fresh
         got = landing(strokes[i], fresh)
-        self.last = {"viewport": [round(vp.scale, 3), round(vp.ox), round(vp.oy), round(vp.score, 2)]}
+        self.last = {"viewport": [round(vp.scale, 3), round(vp.ox), round(vp.oy), round(vp.score, 2)],
+                     "source": getattr(self, "source", "?")}
         if got is None:
             # maybe it arrived and is not saved yet: never send again blindly
             raise GuardError("R-PROBE: the probe stroke did not appear")

@@ -34,6 +34,8 @@ CASES = [
     HelpCase("produktregel", "Ableitung von x^3 * sin(x) ?", spoilers=("3x^2sin", "x^3cos")),
     HelpCase("gauss-summe", "Summe von i=1 bis n über i = ?", spoilers=("n(n+1)/2", "n*(n+1)/2")),
     HelpCase("quadr-ergaenzung", "x^2+6x=7  Hilfe, wie weiter?", "x^2+6x=7", spoilers=("x=1", "x=-7")),
+    HelpCase("schlange-richtung", "4x4 Raster, Schlangenlinie spaltenweise: wann North, wann South?",
+             "for x in range(4):", subject="Programmieren (Python)", spoilers=("x%2==0",)),
     HelpCase("vorzeichen", "5-2(x-3)=1  ich komme nicht weiter", "5-2(x-3)=1", spoilers=("x=5",)),
 ]
 

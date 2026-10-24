@@ -41,10 +41,20 @@ class Review:
     rejected: list[tuple[Action, str]] = field(default_factory=list)
 
 
+def _iou(a, b) -> float:
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / union if union > 0 else 0.0
+
+
 def validate(actions: list[Action], elements: list[Element], profile, *, delivered: set[str] = frozenset(),
-             overrides: dict[str, str] | None = None) -> Review:
+             overrides: dict[str, str] | None = None, placed: list | None = None) -> Review:
     """Apply the interaction rules. `overrides` maps element id -> verdict from a deterministic
-    checker (e.g. sympy); a model verdict that contradicts it is rejected."""
+    checker (e.g. sympy); a model verdict that contradicts it is rejected. `placed` lists
+    (bbox, verdict) already on the page: a green is never followed by a red on the same, unchanged
+    ink (or the reverse) - round 3 on real pages: readings wavered between rounds and lines got both."""
     by_id = {e.id: e for e in elements}
     overrides = overrides or {}
     asked = page_asks_for_help(elements)
@@ -77,6 +87,9 @@ def validate(actions: list[Action], elements: list[Element], profile, *, deliver
             # round 7: without the PDF the model confirmed 'a^2+b^2' and "f'(x)=3x" - right or
             # wrong only relative to a task it could not see
             reason = "no task on the page to judge this line against"
+        elif a.verdict in ("correct", "wrong") and any(
+                v in ("correct", "wrong") and v != a.verdict and _iou(b, el.bbox) > 0.8 for b, v in placed or []):
+            reason = "contradicts feedback already on the page (the ink has not changed)"
         elif el.id in overrides and a.verdict in ("correct", "wrong") and overrides[el.id] != a.verdict:
             reason = f"contradicts the deterministic check ({overrides[el.id]})"
         elif a.mark == "note" and not a.text.strip():

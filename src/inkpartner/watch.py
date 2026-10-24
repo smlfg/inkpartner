@@ -226,6 +226,7 @@ class PageState:
     pending: dict | None = None                         # feedback that could not be written yet
     own_sigs: set[str] = field(default_factory=set)     # pen-path strokes: agent ink in the student's layer
     help_levels: dict = field(default_factory=dict)     # task -> how often help was given (tutor.py)
+    verdicts: dict = field(default_factory=dict)        # action key -> [bbox, verdict] of green/red marks
 
 
 class Watcher:
@@ -262,7 +263,8 @@ class Watcher:
             for rel, d in data.items():
                 self.pages[rel] = PageState(tuple(d["stamp"]), 0.0, d["reviewed_sha"], d["own_sha"],
                                             set(d["delivered"]), own_sigs=set(d.get("own_sigs", [])),
-                                            help_levels=dict(d.get("help_levels", {})))
+                                            help_levels=dict(d.get("help_levels", {})),
+                                            verdicts=dict(d.get("verdicts", {})))
         except (OSError, ValueError, KeyError):
             pass
 
@@ -271,7 +273,7 @@ class Watcher:
         self.state_file.write_text(json.dumps({rel: {"stamp": p.stamp, "reviewed_sha": p.reviewed_sha,
                                                      "own_sha": p.own_sha, "delivered": sorted(p.delivered),
                                                      "own_sigs": sorted(p.own_sigs),
-                                                     "help_levels": p.help_levels}
+                                                     "help_levels": p.help_levels, "verdicts": p.verdicts}
                                                for rel, p in self.pages.items()}))
 
     # ------------------------------------------------------------------- loop
@@ -322,8 +324,13 @@ class Watcher:
                            background=bg(rel) if bg else None,
                            reader=self.reader, judge_model=self.judge_model,
                            tutor_model=self.judge_model or self.model if self.teach else None,
-                           help_levels=st.help_levels)
+                           help_levels=st.help_levels,
+                           placed=[v for k, v in st.verdicts.items() if k in st.delivered])
             self.last_round = r
+            by_id = {e.id: e for e in r.elements}
+            for a in r.accepted:
+                if a.verdict in ("correct", "wrong") and a.element in by_id:
+                    st.verdicts[a.key(by_id[a.element])] = [list(by_id[a.element].bbox), a.verdict]
             self.log(f"{self.tablet.name(rel)}: {r.subject}, {len(r.elements)} elements, "
                      f"{len(r.accepted)} marks in {time.time() - t0:.1f}s via {getattr(self.model, 'used', '?')}")
             for a in r.accepted:

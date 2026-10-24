@@ -998,3 +998,17 @@ class JudgeOnlyWhatCanBeJudged(unittest.TestCase):
         b = Element("e1", "node", [0, 80, 50, 130], "", confidence=0.95)
         r = plan.validate([plan.Action("e1", "correct", "check")], [a, b], profiles.get("diagram"))
         self.assertEqual(r.rejected[0][1], "nothing written to judge")
+
+
+class NoFlipFlop(unittest.TestCase):
+    def test_a_red_does_not_follow_a_green_on_unchanged_ink(self):
+        from inkpartner import plan, profiles
+        from inkpartner.elements import Element
+        t = Element("e0", "formula", [0, 0, 300, 60], "x^2+3x=1", confidence=0.95)
+        e = Element("e1", "formula", [0, 100, 300, 160], "x^2+3x+9/4=1+9/4", confidence=0.95)
+        r = plan.validate([plan.Action("e1", "wrong", "circle")], [t, e], profiles.get("math"),
+                          placed=[([0, 101, 300, 160], "correct")])
+        self.assertIn("contradicts feedback already", r.rejected[0][1])
+        r = plan.validate([plan.Action("e1", "wrong", "circle")], [t, e], profiles.get("math"),
+                          placed=[([0, 101, 300, 260], "correct")])       # the line has grown: edited
+        self.assertTrue(r.accepted)

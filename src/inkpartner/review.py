@@ -24,7 +24,7 @@ class Round:
 def run(strokes: list[dict], *, model=None, subject: str | None = None, elements: list[Element] | None = None,
         proposals: list[tuple[plan.Action, str]] | None = None, delivered: set[str] = frozenset(),
         reader=None, judge_model=None, tutor_model=None, help_levels: dict | None = None,
-        background=None) -> Round:
+        background=None, placed: list | None = None) -> Round:
     """`elements` / `proposals` can be given (tests, replays); otherwise the model provides them.
     `reader` (readers.get) replaces the default reading; `judge_model` judges instead of `model`.
     With `tutor_model` and `help_levels` (task -> how often help was given) a help request is answered
@@ -64,7 +64,8 @@ def run(strokes: list[dict], *, model=None, subject: str | None = None, elements
     acted = {a.element for a, _ in proposals}
     proposals += [(plan.Action(e.id, "unreadable", "wavy", why="illegible"), "")
                   for e in elements if not e.legible and e.id not in acted and profile.marks >= {"wavy"}]
-    review = plan.validate([a for a, _ in proposals], elements, profile, delivered=delivered, overrides=checked)
+    review = plan.validate([a for a, _ in proposals], elements, profile, delivered=delivered, overrides=checked,
+                           placed=placed)
     taught = _teach(review.accepted, elements, subject, profile, tutor_model, help_levels)
     height = max([PAGE_H] + [int(p[1]) + 200 for s in strokes for p in s["points"]])
     ink = plan.draw(review.accepted, elements, strokes, width=PAGE_W, height=height)

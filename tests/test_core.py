@@ -1079,3 +1079,16 @@ class Geometry(unittest.TestCase):
     def test_algebra_is_untouched(self):
         from inkpartner.mathcheck import meaning
         self.assertEqual(meaning("2x = 6")[0], "equation")
+
+
+class ViewportFromPenLag(unittest.TestCase):
+    def test_the_file_lagging_behind_the_pen_still_fits(self):
+        import random
+        from inkpartner import viewport, sim
+        from inkpartner.viewport import Viewport
+        true = Viewport(1.0, 6.0, -1783.0, 1.0)
+        page = sim.handwrite("abcd", (300, 3500), 80, random.Random(3))
+        screen = [[list(true.to_screen(p[0], p[1])) for p in s["points"]] for s in page]
+        vp = viewport.from_pen(screen, page[:-2])          # the app has not saved the last 2 yet
+        self.assertIsNotNone(vp)
+        self.assertAlmostEqual(vp.oy, -1783, delta=5)

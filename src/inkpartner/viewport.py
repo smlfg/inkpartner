@@ -120,28 +120,41 @@ def _resample(pts, n=16):
     return out
 
 
-def from_pen(screen_strokes, page_strokes, n: int = 4, max_rms: float = 8.0):
-    """Viewport from the student's last strokes, seen twice: on the screen (pen events) and on the
-    page (saved file). Pairs the last n of each in order; least squares for one scale and an offset.
-    None when there is too little to compare or the fit is poor (a stroke missing on one side)."""
-    k = min(n, len(screen_strokes), len(page_strokes))
-    if k < 1:
-        return None
+def _fit(screen_strokes, page_strokes):
     P, Q = [], []
-    for sp, pp in zip(screen_strokes[-k:], page_strokes[-k:]):
+    for sp, pp in zip(screen_strokes, page_strokes):
         Q += _resample(sp)
         P += _resample(pp["points"])
     mx = sum(p[0] for p in P) / len(P); my = sum(p[1] for p in P) / len(P)
     qx = sum(q[0] for q in Q) / len(Q); qy = sum(q[1] for q in Q) / len(Q)
     var = sum((p[0] - mx) ** 2 + (p[1] - my) ** 2 for p in P)
     if var < 100:                                       # a dot: no scale to measure
-        return None
+        return None, 1e9
     cov = sum((p[0] - mx) * (q[0] - qx) + (p[1] - my) * (q[1] - qy) for p, q in zip(P, Q))
-    s = cov / var
-    vp = Viewport(s, qx - s * mx, qy - s * my, 0.0)
+    sc = cov / var
+    vp = Viewport(sc, qx - sc * mx, qy - sc * my, 0.0)
     rms = (sum((vp.to_screen(p[0], p[1])[0] - q[0]) ** 2 + (vp.to_screen(p[0], p[1])[1] - q[1]) ** 2
                for p, q in zip(P, Q)) / len(P)) ** 0.5
-    if not 0.3 < s < 4 or rms > max_rms:
+    return vp, rms
+
+
+def from_pen(screen_strokes, page_strokes, n: int = 4, max_rms: float = 8.0, max_shift: int = 6):
+    """Viewport from the student's last strokes, seen twice: on the screen (pen events) and on the
+    page (saved file). Pairs the last n of each; least squares for one scale and an offset.
+    The file can lag behind the pen (live test 24.10.: the review came before the app had saved the
+    last strokes), so the pairing is tried with the newest pen strokes left out, up to max_shift.
+    None when nothing fits well (a stroke missing on one side, or a scroll in between)."""
+    best = (None, 1e9)
+    for shift in range(0, max_shift + 1):
+        scr = screen_strokes[:len(screen_strokes) - shift] if shift else screen_strokes
+        k = min(n, len(scr), len(page_strokes))
+        if k < 1:
+            break
+        vp, rms = _fit(scr[-k:], page_strokes[-k:])
+        if vp is not None and 0.3 < vp.scale < 4 and rms < best[1]:
+            best = (vp, rms)
+    vp, rms = best
+    if vp is None or rms > max_rms:
         return None
     vp.score = round(1.0 - rms / max_rms, 3)
     return vp

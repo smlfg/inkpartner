@@ -257,6 +257,7 @@ def report(res: ChaosResult, path: str):
     rows += ["", "```", json.dumps(res.summary, ensure_ascii=False, indent=1), "```"]
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     Path(path).write_text("\n".join(rows) + "\n")
+    Path(path.replace(".md", ".json")).write_text(json.dumps(asdict(res), ensure_ascii=False, indent=1))
     return res.summary
 
 

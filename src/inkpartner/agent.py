@@ -98,9 +98,7 @@ def judge(model, strokes: list[dict], elements: list[Element], profile, *,
         facts = ("\nA symbolic checker already decided these steps; agree with it: "
                  + json.dumps(checked) + "\n")
     prompt = (f"{profile.judge}\n\nElements on the page:\n{listing}\n{facts}\n"
-              "Propose at most a few actions. A mistake gets verdict 'wrong' (circle, underline or note) - "
-              "never 'help': 'help' is only the answer to a question the student wrote. "
-              "Marks: check/underline for correct; circle, underline or a "
+              "Propose at most a few actions. Marks: check/underline for correct; circle, underline or a "
               "note for wrong; question or note for a hint; wavy for unreadable. If the student asks for "
               "help (asks_for_help, a question mark, '= ?', 'Hilfe', a task with no own work yet), answer "
               "with verdict 'help', mark 'note': say in German what the problem is and the very next step "

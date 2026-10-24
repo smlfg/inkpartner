@@ -85,6 +85,7 @@ class Tablet:
         self.monitor = monitor
         self.allow_restart = allow_restart
         self.device = device
+        self.pace_s = 0.002                             # between pen reports when writing
 
     def ssh(self, cmd: str, data: bytes | None = None, timeout: float = 30) -> bytes:
         r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", self.host, cmd],
@@ -184,7 +185,17 @@ class Tablet:
         if mon:
             mon.injecting = True
         try:
-            self.ssh(f"cat > /dev/input/{shlex.quote(self.device)}", data=penstream.build(screen_strokes), timeout=60)
+            # at the pen's pace, one report every ~2 ms (a block at once: 'Timeout while waiting for
+            # penpoint', nothing drawn - live test 24.10.)
+            p = subprocess.Popen(["ssh", "-o", "BatchMode=yes", self.host,
+                                  f"cat > /dev/input/{shlex.quote(self.device)}"],
+                                 stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            for rep in penstream.reports(penstream.build(screen_strokes)):
+                p.stdin.write(rep)
+                p.stdin.flush()
+                time.sleep(self.pace_s)
+            p.stdin.close()
+            p.wait(timeout=30)
         finally:
             if mon:
                 mon.injecting = False

@@ -113,3 +113,19 @@ class Reader:
             elif etype == EV_SYN and self.down:
                 self.points.append([self.x / DIGITIZER[0] * PAGE[0], self.y / DIGITIZER[1] * PAGE[1]])
         self.buf = self.buf[n * size:]
+
+
+def reports(stream: bytes) -> list[bytes]:
+    """Split an event stream into reports (everything up to and including each SYN), so it can be
+    written at the pen's own pace. Live test 24.10.: written as one block, xochitl logged
+    'Timeout while waiting for penpoint' and drew nothing."""
+    size = struct.calcsize(FMT)
+    out, start = [], 0
+    for i in range(0, len(stream), size):
+        _, _, etype, _, _ = struct.unpack_from(FMT, stream, i)
+        if etype == EV_SYN:
+            out.append(stream[start:i + size])
+            start = i + size
+    if start < len(stream):
+        out.append(stream[start:])
+    return out

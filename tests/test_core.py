@@ -1092,3 +1092,12 @@ class ViewportFromPenLag(unittest.TestCase):
         vp = viewport.from_pen(screen, page[:-2])          # the app has not saved the last 2 yet
         self.assertIsNotNone(vp)
         self.assertAlmostEqual(vp.oy, -1783, delta=5)
+
+
+class PacedPen(unittest.TestCase):
+    def test_reports_split_the_stream_at_every_syn_and_lose_nothing(self):
+        from inkpartner import penstream
+        stream = penstream.build([{"points": [[100, 100], [140, 120], [180, 160]]}], start=0.0)
+        reps = penstream.reports(stream)
+        self.assertEqual(b"".join(reps), stream)
+        self.assertGreater(len(reps), 4)

@@ -82,7 +82,7 @@ class Rules(unittest.TestCase):
         self.assertEqual(plan.Action("a", "correct", "underline").color, "green")
 
     def test_limit_keeps_errors_first(self):
-        acts = [plan.Action("a", "correct", "check")] + [plan.Action("a", "wrong", "note", text=f"n{i}") for i in range(5)]
+        acts = [plan.Action("a", "correct", "check")] + [plan.Action("b", "wrong", "note", text=f"n{i}") for i in range(5)]
         r = plan.validate(acts, self.els, self.math)
         self.assertEqual(len(r.accepted), self.math.max_actions)
         self.assertTrue(all(a.verdict == "wrong" for a in r.accepted))
@@ -656,11 +656,8 @@ class PenChannelIsGuarded(unittest.TestCase):
 
             def open_page(self):
                 return ("other-doc", "other-page")
-        tab = T("fake", guard=guards.Guard(os.path.join(tempfile.mkdtemp(), "STOP"), log=lambda *a: None),
-                trust_viewport=True)
-        pen = watch.PenChannel.__new__(watch.PenChannel)
-        pen.tablet, pen.device = tab, "event2"
-        pen.cal = {"scale": 1, "offset_x": 0, "offset_y": 0}
+        tab = T("fake", guard=guards.Guard(os.path.join(tempfile.mkdtemp(), "STOP"), log=lambda *a: None))
+        pen = watch.PenChannel(tab)
         with self.assertRaises(guards.GuardError):
             pen.deliver(marks.underline([100, 100, 200, 120]), "doc/page.rm")
         self.assertFalse(any("/dev/input" in c for c in calls))
@@ -817,3 +814,201 @@ class Snap(unittest.TestCase):
         geometry.snap(els, a + b)
         self.assertEqual([round(v) for v in els[1].bbox], [round(v) for v in true_b])
         self.assertEqual([round(v) for v in els[0].bbox], [round(v) for v in marks.bbox_of(a)])
+
+
+class PenPathRound4(unittest.TestCase):
+    """Writing through a zoomed / scrolled screen with a possibly stale screenshot (simpen.py)."""
+
+    def _tab(self, view, thumb):
+        import random
+        from inkpartner import simpen
+        from inkpartner.viewport import Viewport
+        tab = simpen.ScreenTablet(tempfile.mkdtemp(), Viewport(*view, 1.0), Viewport(*thumb, 1.0))
+        plan = simpen.build_page(tab, 2, random.Random(4))
+        return tab, plan
+
+    def test_a_stale_screenshot_costs_one_probe_stroke_then_the_marks_land(self):
+        from inkpartner import penpath, simpen, guards
+        tab, plan = self._tab((1, 0, -150), (1, 0, 0))
+        before = tab.strokes()
+        path = penpath.PenPath(simpen.Device(tab), wait_s=0, tries=1, sleep=lambda s: None)
+        with self.assertRaises(guards.GuardError) as e:
+            path.deliver(plan, "d/p.rm")
+        self.assertIn("R-PROBE", str(e.exception))
+        self.assertEqual(len(path.landed), 1)            # only the probe went out
+        path.deliver(plan, "d/p.rm")
+        states = verify.verify(plan, before, tab.strokes())
+        self.assertTrue(all(v == "confirmed" for v in states.values()), states)
+
+    def test_a_mark_off_the_screen_is_not_sent(self):
+        from inkpartner import penpath, simpen, guards
+        tab, plan = self._tab((2.0, -1300, -200), (2.0, -1300, -200))
+        n = len(tab.strokes())
+        path = penpath.PenPath(simpen.Device(tab), wait_s=0, tries=1, sleep=lambda s: None)
+        with self.assertRaises(guards.GuardError) as e:
+            path.deliver(plan, "d/p.rm")
+        self.assertIn("R-OFFSCREEN", str(e.exception))
+        self.assertEqual(len(tab.strokes()), n)
+
+    def test_the_probe_is_the_stroke_with_most_paper_around_it(self):
+        from inkpartner import penpath
+        ink = [{"points": [[100, 100], [200, 100]]}]
+        near = {"points": [[210, 100], [240, 110]]}
+        far = {"points": [[600, 600], [630, 610]]}
+        self.assertEqual(penpath.pick_probe([near, far], ink), 1)
+
+    def test_watcher_reads_its_own_pen_strokes_as_agent_ink(self):
+        from inkpartner import simpen, penpath, readers
+        from inkpartner.watch import Watcher
+        from inkpartner.elements import Element
+        from inkpartner.viewport import Viewport
+        import random
+        tab = simpen.ScreenTablet(tempfile.mkdtemp(), Viewport(1, 0, -150, 1.0), Viewport(1, 0, 0, 1.0))
+        seen = []
+
+        def reader(strokes):
+            lines = readers.cluster_lines([s for s in strokes if s.get("author") == "user"])
+            seen.append(len(lines))
+            texts = ["3(x+2)=15", "3x+2=15"]
+            return "math", [Element(f"e{i}", "formula", marks.bbox_of(l), texts[i % 2], confidence=0.95)
+                            for i, l in enumerate(lines)]
+
+        class Judge:
+            name = used = "fake"
+
+            def json(self, images, prompt, schema):
+                return {"actions": []}
+        pen = penpath.PenPath(simpen.Device(tab), wait_s=0, tries=1, sleep=lambda s: None)
+        w = Watcher(tab, Judge(), subject="math", pen=pen, log=lambda *a: None, reader=reader,
+                    judge_model=Judge(), state_file=os.path.join(tab.dir, "state.json"))
+        w.verify_wait_s, w.verify_tries = 0, 1
+        w.tick()
+        rng = random.Random(3)
+        for i, t in enumerate(["3(x+2)=15", "3x+2=15"]):
+            tab.student_writes(sim_handwrite(t, (200, 220 + 180 * i), 80, rng))
+        for _ in range(6):                                # review, probe misses, re-review, deliver
+            tab.clock += 10
+            w.tick()
+        st = w.pages[tab.REL]
+        self.assertTrue(st.own_sigs)                      # the probe and the marks are remembered
+        self.assertTrue(all(n == 2 for n in seen), seen)  # the reader never took them for writing
+        self.assertTrue(st.delivered)
+
+
+def sim_handwrite(*a):
+    from inkpartner import sim
+    return sim.handwrite(*a)
+
+
+class TutorLadder(unittest.TestCase):
+    def test_level_one_is_a_question_without_the_result(self):
+        from inkpartner import tutor
+        out = {"speech": ["Welche binomische Formel passt zu einer Summe hoch drei?"], "note": "(a+b)^3 nutzen",
+               "probe": "", "level": 1}
+        c = tutor.score(out, level=1, spoilers=("27x^3",))
+        self.assertTrue(c["sprechbar"] and c["auftrag"] and c["kein_ergebnis"], c)
+
+    def test_a_spoken_formula_and_a_given_result_are_caught(self):
+        from inkpartner import tutor
+        out = {"speech": ["Das Ergebnis ist 27x^3 + 108x^2y."], "note": "", "probe": "", "level": 1}
+        c = tutor.score(out, level=1, spoilers=("27x^3",))
+        self.assertFalse(c["sprechbar"])
+        self.assertFalse(c["kein_ergebnis"])
+
+    def test_level_three_needs_a_new_task(self):
+        from inkpartner import tutor
+        out = {"speech": ["Satz eins und du.", "Zwei.", "Drei.", "Vier.", "Jetzt rechnest du die neue Aufgabe allein."],
+               "note": "", "probe": "", "level": 3}
+        self.assertFalse(tutor.score(out, level=3)["neue_aufgabe"])
+
+    def test_explain_passes_the_level_into_the_prompt(self):
+        from inkpartner import tutor
+        seen = {}
+
+        class M:
+            def json(self, images, prompt, schema):
+                seen["p"] = prompt
+                return {"speech": ["Was ist der erste Schritt?"], "note": "", "probe": ""}
+        tutor.explain(M(), "(a+b)^3 = ?", level=2)
+        self.assertIn("Stufe 2 von 3", seen["p"])
+
+
+class HelpLadderInTheLoop(unittest.TestCase):
+    def test_asking_twice_climbs_the_ladder_and_produces_speech(self):
+        from inkpartner import review
+        from inkpartner.elements import Element
+        levels, prompts = {}, []
+
+        class Tutor:
+            def json(self, images, prompt, schema):
+                prompts.append(prompt)
+                return {"speech": ["Welche Formel kennst du für eine Summe hoch drei?"],
+                        "note": "binomische Formel hoch 3", "probe": "(2a+b)^3"}
+        el = Element("e0", "formula", [100, 100, 600, 180], "(3x+4y)^3 = ?", confidence=0.95)
+        prop = [(review.plan.Action("e0", "help", "note", text="Binom"), "")]
+        for want in (1, 2, 3):
+            r = review.run([], elements=[el], proposals=list(prop), subject="math", tutor_model=Tutor(),
+                           help_levels=levels)
+            self.assertIn(f"Stufe {want} von 3", prompts[-1])
+        self.assertTrue(any("Summe hoch drei" in v for v in r.speech.values()))
+        self.assertIn("Neu:", r.accepted[0].text)          # level 3 sets a new task on the page
+
+    def test_the_speaker_refuses_formulas_and_stays_off(self):
+        from inkpartner import speech
+        sp = speech.MacSpeaker("off")
+        sp("Rechne x^3 aus.")
+        self.assertEqual(sp.log[-1][0], "refused")
+
+
+class LineClustering(unittest.TestCase):
+    def test_a_small_stroke_far_below_does_not_merge_two_lines(self):
+        import random
+        from inkpartner import sim, readers
+        rng = random.Random(5)
+        a = sim.handwrite("x^2-5x+6=0", (200, 220), 80, rng)
+        y = max(p[1] for s in a for p in s["points"]) + 90
+        b = sim.handwrite("wie geht das?", (200, y), 80, rng)
+        self.assertEqual(len(readers.cluster_lines(a + b)), 2)
+
+
+class JudgeOnlyWhatCanBeJudged(unittest.TestCase):
+    def _v(self, elements, action, checked=None):
+        from inkpartner import plan, profiles
+        return plan.validate([action], elements, profiles.get("math"), overrides=checked or {})
+
+    def test_a_lone_expression_without_task_is_not_confirmed(self):
+        from inkpartner import plan
+        from inkpartner.elements import Element
+        el = Element("e0", "formula", [0, 0, 100, 50], "a^2+b^2", confidence=0.95)
+        r = self._v([el], plan.Action("e0", "correct", "check"))
+        self.assertEqual(r.rejected[0][1], "no task on the page to judge this line against")
+
+    def test_with_a_printed_task_it_may_be_judged(self):
+        from inkpartner import plan
+        from inkpartner.elements import Element
+        task = Element("p0", "printed", [0, 0, 400, 50], "Berechne (a+b)^2", confidence=0.95)
+        el = Element("e0", "formula", [0, 100, 100, 150], "a^2+b^2", confidence=0.95)
+        r = self._v([task, el], plan.Action("e0", "wrong", "circle"))
+        self.assertTrue(r.accepted)
+
+    def test_no_check_mark_on_a_drawn_node_without_text(self):
+        from inkpartner import plan, profiles
+        from inkpartner.elements import Element
+        a = Element("e0", "node", [0, 0, 50, 50], "", confidence=0.95)
+        b = Element("e1", "node", [0, 80, 50, 130], "", confidence=0.95)
+        r = plan.validate([plan.Action("e1", "correct", "check")], [a, b], profiles.get("diagram"))
+        self.assertEqual(r.rejected[0][1], "nothing written to judge")
+
+
+class NoFlipFlop(unittest.TestCase):
+    def test_a_red_does_not_follow_a_green_on_unchanged_ink(self):
+        from inkpartner import plan, profiles
+        from inkpartner.elements import Element
+        t = Element("e0", "formula", [0, 0, 300, 60], "x^2+3x=1", confidence=0.95)
+        e = Element("e1", "formula", [0, 100, 300, 160], "x^2+3x+9/4=1+9/4", confidence=0.95)
+        r = plan.validate([plan.Action("e1", "wrong", "circle")], [t, e], profiles.get("math"),
+                          placed=[([0, 101, 300, 160], "correct")])
+        self.assertIn("contradicts feedback already", r.rejected[0][1])
+        r = plan.validate([plan.Action("e1", "wrong", "circle")], [t, e], profiles.get("math"),
+                          placed=[([0, 101, 300, 260], "correct")])       # the line has grown: edited
+        self.assertTrue(r.accepted)

@@ -41,10 +41,20 @@ class Review:
     rejected: list[tuple[Action, str]] = field(default_factory=list)
 
 
+def _iou(a, b) -> float:
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / union if union > 0 else 0.0
+
+
 def validate(actions: list[Action], elements: list[Element], profile, *, delivered: set[str] = frozenset(),
-             overrides: dict[str, str] | None = None) -> Review:
+             overrides: dict[str, str] | None = None, placed: list | None = None) -> Review:
     """Apply the interaction rules. `overrides` maps element id -> verdict from a deterministic
-    checker (e.g. sympy); a model verdict that contradicts it is rejected."""
+    checker (e.g. sympy); a model verdict that contradicts it is rejected. `placed` lists
+    (bbox, verdict) already on the page: a green is never followed by a red on the same, unchanged
+    ink (or the reverse) - round 3 on real pages: readings wavered between rounds and lines got both."""
     by_id = {e.id: e for e in elements}
     overrides = overrides or {}
     asked = page_asks_for_help(elements)
@@ -55,6 +65,8 @@ def validate(actions: list[Action], elements: list[Element], profile, *, deliver
         reason = None
         if el is None:
             reason = "unknown element"
+        elif el.kind == "printed":
+            reason = "printed exercise text is never marked"
         elif a.verdict not in VERDICT_COLOR:
             reason = f"unknown verdict {a.verdict!r}"
         elif a.mark not in MARKS_FOR[a.verdict] or a.mark not in profile.marks:
@@ -67,6 +79,17 @@ def validate(actions: list[Action], elements: list[Element], profile, *, deliver
             reason = "uncertain reading is never confirmed green"
         elif a.verdict in ("correct", "wrong") and not el.legible:
             reason = "illegible element can only get a wavy line"
+        elif a.verdict in ("correct", "wrong") and not (el.text or "").strip():
+            # round 6: check marks on the circles of a drawn network - there was nothing to judge
+            reason = "nothing written to judge"
+        elif (a.verdict in ("correct", "wrong") and profile.deterministic == "sympy"
+              and el.id not in overrides and not has_task(el, elements)):
+            # round 7: without the PDF the model confirmed 'a^2+b^2' and "f'(x)=3x" - right or
+            # wrong only relative to a task it could not see
+            reason = "no task on the page to judge this line against"
+        elif a.verdict in ("correct", "wrong") and any(
+                v in ("correct", "wrong") and v != a.verdict and _iou(b, el.bbox) > 0.8 for b, v in placed or []):
+            reason = "contradicts feedback already on the page (the ink has not changed)"
         elif el.id in overrides and a.verdict in ("correct", "wrong") and overrides[el.id] != a.verdict:
             reason = f"contradicts the deterministic check ({overrides[el.id]})"
         elif a.mark == "note" and not a.text.strip():
@@ -91,6 +114,15 @@ def validate(actions: list[Action], elements: list[Element], profile, *, deliver
         out.rejected.append((a, "over the per-round limit"))
     out.accepted = out.accepted[:profile.max_actions]
     return out
+
+
+def has_task(el: Element, elements: list[Element]) -> bool:
+    """Is there something on the page this line answers? A printed exercise, or an earlier line of
+    the same exercise (no group given: any earlier line)."""
+    if any(e.kind == "printed" for e in elements):
+        return True
+    before = elements[:next((i for i, e in enumerate(elements) if e.id == el.id), 0)]
+    return any((not el.group or not e.group or e.group == el.group) and (e.text or "").strip() for e in before)
 
 
 def help_targets(elements: list[Element]) -> set[str]:

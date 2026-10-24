@@ -43,9 +43,25 @@ def main(argv=None) -> int:
     w.add_argument("--restart-quiet", type=float, default=1800.0,
                    help="seconds without a change on any page before a restart may happen")
     w.add_argument("--no-pen", action="store_true", help="do not use the V-Pen path")
-    w.add_argument("--trust-viewport", action="store_true",
-                   help="you state the page is shown unzoomed (calibrated); without it no pen events are sent")
+    w.add_argument("--speak", choices=["play", "file", "off"], default="play",
+                   help="help explanations aloud on the Mac (play; never while muted), as audio files, or off")
+    w.add_argument("--no-teach", action="store_true", help="no help ladder: the judge's one-line note only")
     w.add_argument("--once", action="store_true", help="stop after the first review")
+    ps = sub.add_parser("pensim", help="round 4: pen path through a simulated zoomed/scrolled screen, no model")
+    ps.add_argument("--out", default="sim-out-pen")
+    ps.add_argument("--case", action="append", help="only these cases (default: all)")
+    pt = sub.add_parser("pentest", help="ONE guarded pen delivery on the tablet: a small check next to the "
+                                       "last line of the open page, probe first, read back")
+    pt.add_argument("--host", default="remarkable")
+    pt.add_argument("--wait", type=float, default=2.0, help="seconds between read-backs")
+    ch = sub.add_parser("chaossim", help="round 7: page / notebook / folder switches, no model")
+    ch.add_argument("--out", default="sim-out-chaos")
+    te = sub.add_parser("tutoreval", help="round 5: help prompts x levels x models, graded")
+    te.add_argument("--gen", action="append", required=True, help="generator model (repeatable)")
+    te.add_argument("--grader", action="append", help="grader model (repeatable; default gemma4)")
+    te.add_argument("--variant", action="append")
+    te.add_argument("--case", action="append")
+    te.add_argument("--out", default="sim-out-tutor")
     sm = sub.add_parser("sim", help="simulated student + simulated tablet + real agent; compare readers/models")
     sm.add_argument("configs", nargs="+", help="READER@JUDGE, e.g. vlm:ollama:qwen3.6:35b-a3b@ollama:qwen3.6:35b-a3b, "
                                               "lines:ollama:gemma4:26b@..., ocr:apple@ollama-text:gpt-oss:20b")
@@ -54,6 +70,28 @@ def main(argv=None) -> int:
     sm.add_argument("--real", help="JSON with real pages and their truth (replayed line by line)")
     sm.add_argument("--rescore", help="score a saved REPORT.json again instead of running")
     a = ap.parse_args(argv)
+
+    if a.cmd == "pensim":
+        from . import simpen
+        print(json.dumps(simpen.main(a.out, a.case), ensure_ascii=False, indent=1))
+        return 0
+
+    if a.cmd == "pentest":
+        from . import watch
+        print(json.dumps(watch.pentest(a.host, wait_s=a.wait), ensure_ascii=False, indent=1))
+        return 0
+
+    if a.cmd == "chaossim":
+        from . import simchaos
+        print(json.dumps(simchaos.report(simchaos.run(), os.path.join(a.out, "REPORT.md")), ensure_ascii=False, indent=1))
+        return 0
+
+    if a.cmd == "tutoreval":
+        from . import tutoreval
+        a.grader = a.grader or ["ollama:gemma4:26b"]
+        res = tutoreval.run(a.gen, a.grader, a.variant, names=a.case, log=lambda *x: print(*x, flush=True))
+        print(json.dumps(tutoreval.report(res, os.path.join(a.out, "REPORT.md"), a.grader), ensure_ascii=False, indent=1))
+        return 0
 
     if a.cmd == "sim":
         from . import sim
@@ -66,10 +104,10 @@ def main(argv=None) -> int:
         return 0
 
     if a.cmd == "watch":
-        from . import watch
+        from . import speech, watch
         watch.run(a.host, a.model, a.subject, a.interval, a.once, settle_s=a.settle,
                   allow_restart=a.allow_restart, restart_quiet_s=a.restart_quiet, pen=not a.no_pen,
-                  trust_viewport=a.trust_viewport)
+                  speak=speech.MacSpeaker(a.speak), speech_allowed=a.speak != "off", teach=not a.no_teach)
         return 0
 
     if a.cmd == "demo":

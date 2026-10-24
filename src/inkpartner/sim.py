@@ -36,6 +36,7 @@ class Line:
     text: str
     expect: str            # wrong | ok | help | unreadable
     box: list | None = None        # real pages: where this line is on the page
+    draw: str = ""                 # a drawing instead of writing: "nn:2,3,1" or "graph:AB,AC,BD"
 
 
 @dataclass
@@ -44,6 +45,8 @@ class Scenario:
     subject: str
     lines: list[Line]
     source: str | None = None      # a real .rm page: its strokes are replayed line by line
+    printed: str = ""              # round 7: exercise printed on a PDF page under the handwriting
+    show_printed: bool = True      # False: the same page, but the agent gets no background (A/B)
 
 
 def real_line_ink(sc: Scenario) -> list[list[dict]]:
@@ -80,6 +83,112 @@ SCENARIOS = [
     Scenario("mehrschritt-richtig", "math", [Line("3(x-1)=2x+5", "ok"), Line("3x-3=2x+5", "ok"),
                                              Line("x=8", "ok")]),
 ]
+
+
+# Round 6: other subjects. Umlauts written as ue/ae (the single-stroke font folds them anyway).
+SUBJECT_SCENARIOS = [
+    Scenario("code-fakultaet-basisfall", "code", [Line("def fak(n):", "ok"), Line("if n == 0: return 0", "wrong"),
+                                                  Line("return n * fak(n-1)", "ok")]),
+    Scenario("code-summe-richtig", "code", [Line("s = 0", "ok"), Line("for i in range(1, n+1):", "ok"),
+                                            Line("s = s + i", "ok")]),
+    Scenario("code-binaere-suche", "code", [Line("lo, hi = 0, len(a)-1", "ok"), Line("mid = (lo + hi) / 2", "wrong")]),
+    Scenario("code-laufzeit-hilfe", "code", [Line("for i in range(n):", "ok"), Line("for j in range(n): x += 1", "ok"),
+                                             Line("Laufzeit?", "help")]),
+    # from the lecture of 2026-10-16 (Grundlagen der Informatik): snake traversal of a grid
+    Scenario("code-schlange-richtig", "code", [Line("for x in range(n):", "ok"),
+                                               Line("for i in range(n-1):", "ok"),
+                                               Line("if x % 2 == 0: move(North)", "ok"),
+                                               Line("else: move(South)", "ok")]),
+    Scenario("code-schlange-east-innen", "code", [Line("for x in range(n):", "ok"),
+                                                  Line("for i in range(n-1):", "ok"),
+                                                  Line("move(North); move(East)", "wrong")]),
+    Scenario("code-schlange-hilfe", "code", [Line("4x4 Raster Schlangenlinie", "ok"),
+                                             Line("wann North, wann South?", "help")]),
+    Scenario("bwl-deckungsbeitrag", "prose", [Line("DB = Umsatz - Fixkosten", "wrong")]),
+    Scenario("bwl-break-even", "prose", [Line("BEP = Fixkosten / DB pro Stueck", "ok")]),
+    Scenario("pm-kritischer-pfad", "pm", [Line("Kritischer Pfad = kuerzester Weg", "wrong")]),
+    Scenario("pm-meilenstein", "pm", [Line("Meilenstein: Dauer 0", "ok")]),
+    Scenario("nn-parameter-falsch", "diagram", [Line("[Netz 2-3-1]", "ok", draw="nn:2,3,1"),
+                                                Line("Parameter mit Bias: 9", "wrong")]),
+    Scenario("nn-gewichte-richtig", "diagram", [Line("[Netz 2-3-1]", "ok", draw="nn:2,3,1"),
+                                                Line("Gewichte ohne Bias: 9", "ok")]),
+    Scenario("graph-grad-falsch", "diagram", [Line("[Graph]", "ok", draw="graph:AB,AC,CD"),
+                                              Line("Grad von A = 3", "wrong")]),
+    Scenario("graph-weg-hilfe", "diagram", [Line("[Graph]", "ok", draw="graph:AB,AC,CD,BD"),
+                                            Line("kuerzester Weg von A nach D?", "help")]),
+]
+
+
+# Round 7: PDF exercise sheets. Each runs twice: with the printed page given to the agent and without.
+_PDF = [
+    ("pdf-binom-falsch", "Aufgabe 1: Berechne (a+b)^2", [Line("a^2+b^2", "wrong")]),
+    ("pdf-binom-richtig", "Aufgabe 1: Berechne (a+b)^2", [Line("a^2+2ab+b^2", "ok")]),
+    ("pdf-ableitung-falsch", "Aufgabe 2: Leite ab: f(x) = x^3", [Line("f'(x) = 3x", "wrong")]),
+    ("pdf-gleichung-hilfe", "Aufgabe 3: Loese x^2 - 4 = 0", [Line("?", "help")]),
+    ("pdf-gleichung-richtig", "Aufgabe 3: Loese x^2 - 4 = 0", [Line("x = 2 oder x = -2", "ok")]),
+]
+PDF_SCENARIOS = ([Scenario(n, "math", lines, printed=p) for n, p, lines in _PDF]
+                 + [Scenario(n + "-ohne-pdf", "math", lines, printed=p, show_printed=False) for n, p, lines in _PDF])
+
+
+def printed_page(text: str):
+    """A printed exercise sheet: thin, regular, dark grey - the PDF page under the ink."""
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (pagemod.PAGE_W, pagemod.PAGE_H), "white")
+    d = ImageDraw.Draw(img)
+    x = 150.0
+    for seg, sup in _segments(text):
+        h = 52 * (0.55 if sup else 1.0)
+        y = 110 - 52 * 0.35 if sup else 110
+        for st in marks.text(seg, (x, y), height=h):
+            d.line([(p[0], p[1]) for p in st["points"]], fill=(55, 55, 55), width=2)
+        x += marks.text_size(seg, h)[0] + h * 0.15
+    return img
+
+
+def _circle(cx, cy, r, rng, n=28):
+    a0 = rng.uniform(0, 6.28)
+    return [[cx + r * math.cos(a0 + 2 * math.pi * i / n) + rng.gauss(0, 1.2),
+             cy + r * math.sin(a0 + 2 * math.pi * i / n) + rng.gauss(0, 1.2), .6] for i in range(n + 2)]
+
+
+def _edge(a, b, r, rng):
+    (ax, ay), (bx, by) = a, b
+    d = max(1.0, math.hypot(bx - ax, by - ay))
+    ux, uy = (bx - ax) / d, (by - ay) / d
+    return [[ax + ux * r + rng.gauss(0, 1), ay + uy * r + rng.gauss(0, 1), .6],
+            [bx - ux * r + rng.gauss(0, 1), by - uy * r + rng.gauss(0, 1), .6]]
+
+
+def draw(spec: str, origin, rng: random.Random) -> list[dict]:
+    """Hand-drawn diagrams: a neural network (layers of circles, all edges between layers) or a small
+    graph (lettered circles, edges by letter pairs)."""
+    kind, _, arg = spec.partition(":")
+    x0, y0 = origin
+    strokes, r = [], 26
+    if kind == "nn":
+        layers = [int(n) for n in arg.split(",")]
+        tall = max(layers)
+        pos = [[(x0 + 40 + 190 * li, y0 + 40 + 90 * (i + (tall - n) / 2)) for i in range(n)]
+               for li, n in enumerate(layers)]
+        for col in pos:
+            for c in col:
+                strokes.append(_circle(*c, r, rng))
+        for a, b in zip(pos, pos[1:]):
+            for p in a:
+                for q in b:
+                    strokes.append(_edge(p, q, r, rng))
+    elif kind == "graph":
+        names = sorted({ch for e in arg.split(",") for ch in e})
+        spots = [(0, 0), (220, -60), (220, 120), (440, 40), (440, 220)]
+        pos = {n: (x0 + 40 + spots[i][0], y0 + 100 + spots[i][1]) for i, n in enumerate(names)}
+        for n, c in pos.items():
+            strokes.append(_circle(*c, r + 6, rng))
+            for s in marks.text(n, (c[0] - 12, c[1] - 16), height=32):
+                strokes.append([[p[0], p[1], .6] for p in s["points"]])
+        for e in arg.split(","):
+            strokes.append(_edge(pos[e[0]], pos[e[1]], r + 6, rng))
+    return [{"points": pts, "color": "black", "width": 3, "author": "user"} for pts in strokes]
 
 
 # --------------------------------------------------------------- handwriting
@@ -137,6 +246,10 @@ class SimTablet:
         self.guard = Guard(os.path.join(workdir, "STOP"), Limits(), log=lambda *a: None)
         self.monitor = None
         self.allow_restart = False
+        self.bg = None                                  # the printed page (PIL image) or None
+
+    def background(self, rel):
+        return self.bg
 
     def _append(self, strokes, layer):
         tmp = self.path + ".new"
@@ -294,6 +407,10 @@ def run_scenario(sc: Scenario, reader_spec: str, judge_spec: str, out_dir: str, 
     run = Run(f"{reader_spec} | judge {judge_spec}", sc.name)
     w.tick()                                           # the empty page is old news
     y = 220.0
+    if sc.printed:
+        y = 300.0                                      # below the printed exercise
+        if sc.show_printed:
+            tab.bg = printed_page(sc.printed)
     boxes = []
     real = real_line_ink(sc) if sc.source else None
     for i, line in enumerate(sc.lines):
@@ -303,6 +420,8 @@ def run_scenario(sc: Scenario, reader_spec: str, judge_spec: str, out_dir: str, 
             ink = [dict(s, points=[list(p) for p in s["points"]]) for s in real[i]]
             if not ink:
                 continue
+        elif line.draw:
+            ink = draw(line.draw, (200 + rng.uniform(-30, 30), y), rng)
         else:
             ink = handwrite(line.text, (200 + rng.uniform(-30, 30), y), height, rng)
         tab.student_writes(ink)
@@ -336,7 +455,7 @@ def run_scenario(sc: Scenario, reader_spec: str, judge_spec: str, out_dir: str, 
     run.lines = [asdict(x) for x in score_lines(sc_lines, boxes, rounds)]
     os.makedirs(out_dir, exist_ok=True)
     run.preview = os.path.join(out_dir, f"{_slug(run.config)}__{sc.name}.png")
-    pagemod.render(tab.strokes(), scale=0.4).save(run.preview)
+    pagemod.render(tab.strokes(), scale=0.4, background=printed_page(sc.printed) if sc.printed else None).save(run.preview)
     return run
 
 
@@ -434,8 +553,15 @@ def rescore(json_path: str, real: str | None = None) -> list[Run]:
 
 def main(configs: list[str], scenarios: list[str] | None, out_dir: str, log=print, real: str | None = None):
     runs = []
-    pool = SCENARIOS + (real_scenarios(real) if real else [])
-    chosen = [s for s in pool if not scenarios or s.name in scenarios]
+    pool = SCENARIOS + SUBJECT_SCENARIOS + PDF_SCENARIOS + (real_scenarios(real) if real else [])
+    if scenarios == ["subjects"]:
+        chosen = SUBJECT_SCENARIOS
+    elif scenarios == ["pdf"]:
+        chosen = PDF_SCENARIOS
+    elif scenarios:
+        chosen = [s for s in pool if s.name in scenarios]
+    else:
+        chosen = [s for s in pool if s not in SUBJECT_SCENARIOS and s not in PDF_SCENARIOS]
     for cfg in configs:
         reader_spec, _, judge_spec = cfg.partition("@")
         judge_spec = judge_spec or models.DEFAULT

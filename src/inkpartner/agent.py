@@ -63,11 +63,18 @@ JUDGE_SCHEMA = {
 }
 
 
-def read(model, strokes: list[dict]) -> tuple[str, list[Element]]:
-    """Student strokes -> (subject, elements). Agent ink is left out of the picture on purpose."""
-    img = pagemod.render(strokes, authors=("user",))
+PRINTED = (" Printed text (an exercise sheet under the handwriting, thin and regular) is the task, not the "
+           "student's work: list each printed line as kind 'printed' with its text, and give the handwritten "
+           "answer lines the same group as the printed exercise they answer.")
+
+
+def read(model, strokes: list[dict], background=None) -> tuple[str, list[Element]]:
+    """Student strokes -> (subject, elements). Agent ink is left out of the picture on purpose.
+    `background`: the printed page (PDF) under the ink - then the exercise text is read too."""
+    img = pagemod.render(strokes, authors=("user",), background=background)
     fx0, fy0, fx1, fy1 = img.info["frame"]       # the image covers this part of the page
-    data = model.json([pagemod.png_bytes(img)], READ_PROMPT, READ_SCHEMA)
+    data = model.json([pagemod.png_bytes(img)], READ_PROMPT + (PRINTED if background is not None else ""),
+                      READ_SCHEMA)
     els = []
     for i, d in enumerate(data["elements"]):
         b = (d["box"] + [0, 0, 0, 0])[:4]
@@ -81,7 +88,7 @@ def read(model, strokes: list[dict]) -> tuple[str, list[Element]]:
 
 
 def judge(model, strokes: list[dict], elements: list[Element], profile, *,
-          checked: dict[str, str] | None = None) -> list[tuple[Action, str]]:
+          checked: dict[str, str] | None = None, background=None) -> list[tuple[Action, str]]:
     """Elements -> proposed actions (with optional speech). The rules in plan.validate decide."""
     listing = json.dumps([{"id": e.id, "kind": e.kind, "text": e.text, "legible": e.legible,
                            "confidence": round(e.confidence, 2), "asks_for_help": asks_for_help(e)}
@@ -98,8 +105,10 @@ def judge(model, strokes: list[dict], elements: list[Element], profile, *,
               f"or the rule to use, at most {profile.help_max_chars} characters, never the result. "
               "'text' is the note (empty unless mark=note). 'speech' is one short German sentence of natural language that "
               "could be said aloud instead - no formulas, symbols, code or file paths; empty if nothing "
-              "worth saying.")
-    img = pagemod.render(strokes, authors=("user", "agent"))
+              "worth saying."
+              + (" Elements of kind 'printed' are the exercise sheet: never mark them, judge the handwritten "
+                 "answers against them." if any(e.kind == "printed" for e in elements) else ""))
+    img = pagemod.render(strokes, authors=("user", "agent"), background=background)
     data = model.json([pagemod.png_bytes(img)], prompt, JUDGE_SCHEMA)
     return [(Action(element=a["element"], verdict=a["verdict"], mark=a["mark"], text=a["text"], why=a["why"]),
              a["speech"]) for a in data["actions"]]

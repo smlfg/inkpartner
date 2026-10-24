@@ -64,7 +64,9 @@ Diese Prüfungen stecken in den Schreibbefehlen selbst. Kein Aufrufer kommt an i
 | R-RESTART | Neustart (meldet dich ab) nur ausdrücklich erlaubt, nach 30 min ohne Änderung auf irgendeiner Seite und ohne Stiftaktivität, höchstens 1× pro Stunde | 23.10.: nach 4 min Lesen rausgeworfen |
 | R-PEN-NEAR | keine Stiftsignale, solange dein Stift in Reichweite ist | 23.10.: Striche zu einer Linie verschmolzen |
 | R-OPEN | Stiftsignale nur in die Seite, die gerade offen ist (aus dem Log der Notiz-App) | sonst Tipper in Menüs oder auf fremden Seiten |
-| R-VIEWPORT | Stiftsignale nur bei bekannter, ungezoomter Ansicht (`--trust-viewport`, bis Zoom erkannt wird) | 23.10.: Notiz als großes Gebilde über deiner Rechnung |
+| R-VIEWPORT | Stiftsignale nur, wenn das Vorschaubild die Ansicht (Zoom, Scrollen) sicher zeigt | 23.10.: Notiz als großes Gebilde über deiner Rechnung |
+| R-OFFSCREEN | kein Zeichen, das aus dem sichtbaren Teil der Seite ragen würde; es wartet | Runde 4, simuliert |
+| R-PROBE | erst ein Probestrich; landet er mehr als 8 px daneben, kommt nichts weiter, die gemessene Verschiebung korrigiert den nächsten Versuch | Runde 4: veraltetes Vorschaubild nach Scrollen ohne Schreiben |
 | R-FOREIGN | unerwartete Striche in deiner Ebene nach dem Schreiben → **Not-Aus** (Datei `~/.cache/inkpartner/STOP`) | dasselbe |
 | R-PREFIX | eine Seitendatei darf nur wachsen, deine Bytes bleiben unverändert | Produktvertrag |
 | R-RATE | höchstens 4 Stift-Auslieferungen pro Minute | gegen Schleifen |
@@ -105,3 +107,5 @@ aber die Oberfläche neu. Beides zugleich kann heute kein Weg. Die Rückprüfung
 Farbe und Ebene absichtlich: Sie erkennt die Tinte auf beiden Wegen.
 
 Vergleich mit den bisherigen Varianten: [docs/VERGLEICH.md](docs/VERGLEICH.md).
+Messergebnisse der Simulation als Seite: [docs/messstand/](docs/messstand/README.md).
+Wie das Projekt gearbeitet hat: [docs/ARBEITSWEISE.md](docs/ARBEITSWEISE.md); allgemein für andere Projekte: [docs/METHODE.md](docs/METHODE.md) (als Skill: [HAI-skills-registry/experiment-to-project](https://github.com/smlfg/HAI-skills-registry/tree/main/skills/engineering/experiment-to-project)).

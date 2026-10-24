@@ -39,6 +39,23 @@ from . import review, verify
 XOCHITL = "/home/root/.local/share/remarkable/xochitl"
 
 
+def parse_open_page(log: str) -> tuple[str, str] | None:
+    """The last document opened, its last loaded page, and the page last saved while it is open."""
+    doc = page = None
+    for line in log.splitlines():
+        if "EntityOpen::open" in line and "{" in line:
+            doc, page = line.split("{", 1)[1].split("}", 1)[0], None
+        elif "loaded pageId=" in line and doc and "no file found" not in line:
+            page = line.split("loaded pageId=", 1)[1].split()[0].rstrip(",")
+        elif "Scene written to" in line and "/xochitl/" in line:
+            d, _, f = line.split("/xochitl/", 1)[1].split('"')[0].partition("/")
+            if d == doc or doc is None:
+                doc, page = d, f.split(".rm")[0]
+        elif "now exiting" in line and doc and doc in line:
+            doc = page = None
+    return (doc, page) if doc and page else None
+
+
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -131,18 +148,12 @@ class Tablet:
             return doc
 
     def open_page(self) -> tuple[str, str] | None:
-        """(document, page) open on the screen, from the notes app's own log. None if unknown/closed."""
-        out = self.ssh("journalctl -u xochitl --since '-12 h' --no-pager -o cat | "
-                       "grep -E 'EntityOpen::open|loaded pageId=|now exiting' | tail -n 40").decode()
-        doc = page = None
-        for line in out.splitlines():
-            if "EntityOpen::open" in line and "{" in line:
-                doc, page = line.split("{", 1)[1].split("}", 1)[0], None
-            elif "loaded pageId=" in line and doc:
-                page = line.split("loaded pageId=", 1)[1].split()[0].rstrip(",")
-            elif "now exiting" in line and doc and doc in line:
-                doc = page = None
-        return (doc, page) if doc and page else None
+        """(document, page) open on the screen, from the notes app's own log. None if unknown/closed.
+        Since boot, not the last 12 h: on 2026-10-24 a notebook opened the evening before was still
+        open the next afternoon, and a 12 h window saw nothing."""
+        out = self.ssh("journalctl -u xochitl -b --no-pager -o cat | "
+                       "grep -E 'EntityOpen::open|loaded pageId=|now exiting|Scene written to' | tail -n 60").decode()
+        return parse_open_page(out)
 
     def write_file_and_restart(self, rel: str, data: bytes, expected_sha: str, *, quiet_s: float):
         """File path - guarded: restart allowed, long quiet, real pen idle, bytes only appended."""

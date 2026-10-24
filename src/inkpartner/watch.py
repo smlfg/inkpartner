@@ -436,6 +436,10 @@ class Watcher:
             Path(src).write_bytes(data)
             strokes = pagemod.read_strokes(src)
             from .penpath import stroke_sig
+            from . import calibrate
+            c = calibrate.load(rel)                     # the agent's own calibration L is agent ink
+            if c and c[2] and {"points": c[2]} not in st.expected:
+                st.expected.append({"points": c[2]})
             if st.expected:                             # marks sent without read-back, now saved
                 for x in strokes:
                     if x.get("author") == "user" and stroke_sig(x) not in st.own_sigs and \

@@ -23,12 +23,16 @@ class Viewport:
     ox: float             # screen = page * scale + offset
     oy: float
     score: float          # 0..1: how much of the screenshot ink the page ink explains
+    turn: complex = 1 + 0j  # rotation of the page on the screen (landscape: +-1j). Live test 24.10.:
+                            # Quick sheets held sideways - a line sent across landed downwards
 
     def to_screen(self, x, y):
-        return x * self.scale + self.ox, y * self.scale + self.oy
+        z = complex(x, y) * self.turn * self.scale + complex(self.ox, self.oy)
+        return z.real, z.imag
 
     def to_page(self, sx, sy):
-        return (sx - self.ox) / self.scale, (sy - self.oy) / self.scale
+        z = (complex(sx, sy) - complex(self.ox, self.oy)) / (self.turn * self.scale)
+        return z.real, z.imag
 
 
 def ink_mask(png: bytes, size=(192, 256)):
@@ -121,18 +125,27 @@ def _resample(pts, n=16):
 
 
 def _fit(screen_strokes, page_strokes):
+    """Similarity fit screen = a * page + t in complex numbers (a = scale and rotation), the rotation
+    snapped to a quarter turn: the page is upright or the tablet is held sideways."""
     P, Q = [], []
     for sp, pp in zip(screen_strokes, page_strokes):
-        Q += _resample(sp)
-        P += _resample(pp["points"])
-    mx = sum(p[0] for p in P) / len(P); my = sum(p[1] for p in P) / len(P)
-    qx = sum(q[0] for q in Q) / len(Q); qy = sum(q[1] for q in Q) / len(Q)
-    var = sum((p[0] - mx) ** 2 + (p[1] - my) ** 2 for p in P)
+        Q += [complex(*q[:2]) for q in _resample(sp)]
+        P += [complex(*p[:2]) for p in _resample(pp["points"])]
+    mp, mq = sum(P) / len(P), sum(Q) / len(Q)
+    var = sum(abs(p - mp) ** 2 for p in P)
     if var < 100:                                       # a dot: no scale to measure
         return None, 1e9
-    cov = sum((p[0] - mx) * (q[0] - qx) + (p[1] - my) * (q[1] - qy) for p, q in zip(P, Q))
-    sc = cov / var
-    vp = Viewport(sc, qx - sc * mx, qy - sc * my, 0.0)
+    a = sum((p - mp).conjugate() * (q - mq) for p, q in zip(P, Q)) / var
+    if a == 0:
+        return None, 1e9
+    turn = min((1, 1j, -1, -1j), key=lambda u: abs(a / abs(a) - u))
+    sc = sum(((p - mp) * turn).conjugate() * (q - mq) for p, q in zip(P, Q)).real / var
+    if sc <= 0:
+        return None, 1e9
+    t = mq - mp * turn * sc
+    vp = Viewport(sc, t.real, t.imag, 0.0, turn=turn)
+    P = [[p.real, p.imag] for p in P]
+    Q = [[q.real, q.imag] for q in Q]
     rms = (sum((vp.to_screen(p[0], p[1])[0] - q[0]) ** 2 + (vp.to_screen(p[0], p[1])[1] - q[1]) ** 2
                for p, q in zip(P, Q)) / len(P)) ** 0.5
     return vp, rms
@@ -148,7 +161,7 @@ def from_pen(screen_strokes, page_strokes, n: int = 4, max_rms: float = 8.0, max
     for shift in range(0, max_shift + 1):
         scr = screen_strokes[:len(screen_strokes) - shift] if shift else screen_strokes
         k = min(n, len(scr), len(page_strokes))
-        if k < 1:
+        if k < 2:                                       # one stroke fits any rotation: not a measurement
             break
         vp, rms = _fit(scr[-k:], page_strokes[-k:])
         if vp is not None and 0.3 < vp.scale < 4 and rms < best[1]:

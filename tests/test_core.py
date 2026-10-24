@@ -1101,3 +1101,19 @@ class PacedPen(unittest.TestCase):
         reps = penstream.reports(stream)
         self.assertEqual(b"".join(reps), stream)
         self.assertGreater(len(reps), 4)
+
+
+class ViewportSideways(unittest.TestCase):
+    def test_a_tablet_held_sideways_is_measured_from_the_pen(self):
+        import random
+        from inkpartner import viewport, sim
+        from inkpartner.viewport import Viewport
+        true = Viewport(1.0, 2400.0, 300.0, 1.0, turn=1j)    # page turned a quarter on the screen
+        page = sim.handwrite("abcd", (300, 700), 80, random.Random(4))
+        screen = [[list(true.to_screen(p[0], p[1])) for p in s["points"]] for s in page]
+        vp = viewport.from_pen(screen, page)
+        self.assertIsNotNone(vp)
+        self.assertEqual(vp.turn, 1j)
+        x, y = vp.to_screen(1000, 500)
+        self.assertAlmostEqual(x, true.to_screen(1000, 500)[0], delta=3)
+        self.assertAlmostEqual(y, true.to_screen(1000, 500)[1], delta=3)

@@ -82,7 +82,7 @@ class Rules(unittest.TestCase):
         self.assertEqual(plan.Action("a", "correct", "underline").color, "green")
 
     def test_limit_keeps_errors_first(self):
-        acts = [plan.Action("a", "correct", "check")] + [plan.Action("a", "wrong", "note", text=f"n{i}") for i in range(5)]
+        acts = [plan.Action("a", "correct", "check")] + [plan.Action("b", "wrong", "note", text=f"n{i}") for i in range(5)]
         r = plan.validate(acts, self.els, self.math)
         self.assertEqual(len(r.accepted), self.math.max_actions)
         self.assertTrue(all(a.verdict == "wrong" for a in r.accepted))
@@ -969,3 +969,32 @@ class LineClustering(unittest.TestCase):
         y = max(p[1] for s in a for p in s["points"]) + 90
         b = sim.handwrite("wie geht das?", (200, y), 80, rng)
         self.assertEqual(len(readers.cluster_lines(a + b)), 2)
+
+
+class JudgeOnlyWhatCanBeJudged(unittest.TestCase):
+    def _v(self, elements, action, checked=None):
+        from inkpartner import plan, profiles
+        return plan.validate([action], elements, profiles.get("math"), overrides=checked or {})
+
+    def test_a_lone_expression_without_task_is_not_confirmed(self):
+        from inkpartner import plan
+        from inkpartner.elements import Element
+        el = Element("e0", "formula", [0, 0, 100, 50], "a^2+b^2", confidence=0.95)
+        r = self._v([el], plan.Action("e0", "correct", "check"))
+        self.assertEqual(r.rejected[0][1], "no task on the page to judge this line against")
+
+    def test_with_a_printed_task_it_may_be_judged(self):
+        from inkpartner import plan
+        from inkpartner.elements import Element
+        task = Element("p0", "printed", [0, 0, 400, 50], "Berechne (a+b)^2", confidence=0.95)
+        el = Element("e0", "formula", [0, 100, 100, 150], "a^2+b^2", confidence=0.95)
+        r = self._v([task, el], plan.Action("e0", "wrong", "circle"))
+        self.assertTrue(r.accepted)
+
+    def test_no_check_mark_on_a_drawn_node_without_text(self):
+        from inkpartner import plan, profiles
+        from inkpartner.elements import Element
+        a = Element("e0", "node", [0, 0, 50, 50], "", confidence=0.95)
+        b = Element("e1", "node", [0, 80, 50, 130], "", confidence=0.95)
+        r = plan.validate([plan.Action("e1", "correct", "check")], [a, b], profiles.get("diagram"))
+        self.assertEqual(r.rejected[0][1], "nothing written to judge")

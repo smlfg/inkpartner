@@ -69,6 +69,14 @@ def validate(actions: list[Action], elements: list[Element], profile, *, deliver
             reason = "uncertain reading is never confirmed green"
         elif a.verdict in ("correct", "wrong") and not el.legible:
             reason = "illegible element can only get a wavy line"
+        elif a.verdict in ("correct", "wrong") and not (el.text or "").strip():
+            # round 6: check marks on the circles of a drawn network - there was nothing to judge
+            reason = "nothing written to judge"
+        elif (a.verdict in ("correct", "wrong") and profile.deterministic == "sympy"
+              and el.id not in overrides and not has_task(el, elements)):
+            # round 7: without the PDF the model confirmed 'a^2+b^2' and "f'(x)=3x" - right or
+            # wrong only relative to a task it could not see
+            reason = "no task on the page to judge this line against"
         elif el.id in overrides and a.verdict in ("correct", "wrong") and overrides[el.id] != a.verdict:
             reason = f"contradicts the deterministic check ({overrides[el.id]})"
         elif a.mark == "note" and not a.text.strip():
@@ -93,6 +101,15 @@ def validate(actions: list[Action], elements: list[Element], profile, *, deliver
         out.rejected.append((a, "over the per-round limit"))
     out.accepted = out.accepted[:profile.max_actions]
     return out
+
+
+def has_task(el: Element, elements: list[Element]) -> bool:
+    """Is there something on the page this line answers? A printed exercise, or an earlier line of
+    the same exercise (no group given: any earlier line)."""
+    if any(e.kind == "printed" for e in elements):
+        return True
+    before = elements[:next((i for i, e in enumerate(elements) if e.id == el.id), 0)]
+    return any((not el.group or not e.group or e.group == el.group) and (e.text or "").strip() for e in before)
 
 
 def help_targets(elements: list[Element]) -> set[str]:

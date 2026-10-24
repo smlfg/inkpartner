@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 import os
 import sys
 
@@ -50,6 +51,8 @@ def main(argv=None) -> int:
     ps = sub.add_parser("pensim", help="round 4: pen path through a simulated zoomed/scrolled screen, no model")
     ps.add_argument("--out", default="sim-out-pen")
     ps.add_argument("--case", action="append", help="only these cases (default: all)")
+    cb = sub.add_parser("calibrate", help="the agent draws a small L on the open page and measures the viewport from it")
+    cb.add_argument("--host", default="remarkable")
     pt = sub.add_parser("pentest", help="ONE guarded pen delivery on the tablet: a small check next to the "
                                        "last line of the open page, probe first, read back")
     pt.add_argument("--host", default="remarkable")
@@ -75,6 +78,21 @@ def main(argv=None) -> int:
         from . import simpen
         print(json.dumps(simpen.main(a.out, a.case), ensure_ascii=False, indent=1))
         return 0
+
+    if a.cmd == "calibrate":
+        from . import calibrate, watch
+        t = watch.Tablet(a.host, monitor=watch.PenMonitor(a.host))
+        time.sleep(6)
+        op = t.open_page()
+        if not op:
+            print("no open page")
+            return 1
+        rel = f"{op[0]}/{op[1]}.rm"
+        mon = t.monitor
+        t.guard.before_pen(target_doc=op[0], target_page=op[1], open_page=op, pen_idle_s=mon.idle_s(), viewport_ok=True)
+        vp = calibrate.run(t, rel)
+        print(json.dumps({"page": t.name(rel), "viewport": vp and [vp.scale, vp.ox, vp.oy, str(vp.turn)]}))
+        return 0 if vp else 2
 
     if a.cmd == "pentest":
         from . import watch

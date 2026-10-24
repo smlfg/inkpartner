@@ -1059,3 +1059,23 @@ class Focus(unittest.TestCase):
         new = [{"points": [[100, 7000 + i * 10], [200, 7000 + i * 10]], "author": "user"} for i in range(8)]
         kept = focus(old + new)
         self.assertEqual(len(kept), 8)
+
+
+class Geometry(unittest.TestCase):
+    def test_area_with_units_and_a_name_is_a_number_chain(self):
+        from inkpartner.mathcheck import meaning
+        self.assertEqual(meaning("A = 1/2 * 6 * 4 = 14 cm^2"), ("chain", False))
+        self.assertEqual(meaning("A = 1/2 * 6 * 4 = 12 cm²"), ("chain", True))
+
+    def test_angles_and_pythagoras(self):
+        from inkpartner.mathcheck import meaning
+        self.assertEqual(meaning("50° + 60° + 80° = 180°"), ("chain", False))
+        self.assertEqual(meaning("3^2 + 4^2 = 5^2"), ("chain", True))
+
+    def test_rounded_decimals_are_right(self):
+        from inkpartner.mathcheck import meaning
+        self.assertEqual(meaning("U = 2 * pi * 3 = 18,85 cm"), ("chain", True))
+
+    def test_algebra_is_untouched(self):
+        from inkpartner.mathcheck import meaning
+        self.assertEqual(meaning("2x = 6")[0], "equation")

@@ -42,8 +42,44 @@ def _variants(t: str) -> list[str]:
     return [t]
 
 
+UNIT = re.compile(r"(\d)\s*(mm|cm|dm|km|m|°|Grad|grad)(\^?[23²³])?(?![A-Za-z])")
+
+
+def geometry_line(text: str) -> str | None:
+    """Geometry writes numbers with units and a name in front: 'A = 1/2 * 6 * 4 = 14 cm^2',
+    '50° + 60° + 80° = 180°'. Without units and without the leading name it is a number chain.
+    None if the line is not of that shape (then it is left to the algebra reading)."""
+    t = UNIT.sub(r"\1", text.replace("²", "^2").replace("³", "^3"))
+    sides = t.split("=")
+    if len(sides) >= 3 and re.fullmatch(r"\s*[A-Za-z][A-Za-z_0-9]*\s*", sides[0]):
+        sides = sides[1:]                          # 'A =' names the quantity
+    t = "=".join(sides)
+    return t if t != text else None
+
+
+def _close(a, b) -> bool:
+    """Decimals on paper are rounded: 2·π·3 = 18,85 is right."""
+    try:
+        fa, fb = float(a), float(b)
+    except TypeError:
+        return False
+    return abs(fa - fb) <= 0.006 * max(1.0, abs(fa), abs(fb))
+
+
 def meaning(text: str, above: str = ""):
     """('equation', solutions, var) | ('chain', all_equal) | ('expression', expr) | None."""
+    g = geometry_line(text)
+    # '°' or 'cm' after a number would otherwise be read as a variable ('50° + 60° = 110°' as an
+    # equation in °): with units present the geometry reading goes first
+    m = None if (g is not None and UNIT.search(text)) else _meaning(text, above)
+    if m is None and g is not None:
+        m = _meaning(g, above)
+        if m is not None and m[0] != "chain":
+            return None                            # a geometry rewrite only ever yields a number chain
+    return m
+
+
+def _meaning(text: str, above: str = ""):
     from sympy import S, solveset, Union, simplify
     t = text.strip().rstrip(".")
     for tail in ("=>", "⇒", "->", "="):
@@ -63,7 +99,8 @@ def meaning(text: str, above: str = ""):
             exprs = [_parse(s) for s in v.split("=")]
             free = set().union(*(e.free_symbols for e in exprs))
             if not free:
-                ok = all(simplify(e - exprs[0]) == 0 for e in exprs[1:])
+                decimals = "." in v or "," in v
+                ok = all(simplify(e - exprs[0]) == 0 or (decimals and _close(e, exprs[0])) for e in exprs[1:])
                 return ("chain", ok)
             if len(free) != 1 or len(exprs) != 2:
                 return None

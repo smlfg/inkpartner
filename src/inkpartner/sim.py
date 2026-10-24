@@ -119,6 +119,18 @@ SUBJECT_SCENARIOS = [
 ]
 
 
+# Geometry (24.10.): units, a named quantity in front, a drawn triangle. Played back line by line.
+GEOMETRY_SCENARIOS = [
+    Scenario("geo-dreieck-flaeche-falsch", "math", [Line("[Dreieck]", "ok", draw="tri:6,4"),
+                                                   Line("A = 1/2 * 6 * 4 = 14 cm^2", "wrong")]),
+    Scenario("geo-dreieck-flaeche-richtig", "math", [Line("[Dreieck]", "ok", draw="tri:6,4"),
+                                                    Line("A = 1/2 * 6 * 4 = 12 cm^2", "ok")]),
+    Scenario("geo-pythagoras", "math", [Line("3^2 + 4^2 = 5^2", "ok"), Line("9 + 16 = 25", "ok")]),
+    Scenario("geo-winkelsumme-falsch", "math", [Line("50 Grad + 60 Grad + 80 Grad = 180 Grad", "wrong")]),
+    Scenario("geo-kreis-umfang", "math", [Line("U = 2 * pi * 3 = 18,85 cm", "ok")]),
+    Scenario("geo-hilfe", "math", [Line("[Dreieck]", "ok", draw="tri:6,4"), Line("Hoehe h = ?", "help")]),
+]
+
 # Round 7: PDF exercise sheets. Each runs twice: with the printed page given to the agent and without.
 _PDF = [
     ("pdf-binom-falsch", "Aufgabe 1: Berechne (a+b)^2", [Line("a^2+b^2", "wrong")]),
@@ -178,6 +190,16 @@ def draw(spec: str, origin, rng: random.Random) -> list[dict]:
             for p in a:
                 for q in b:
                     strokes.append(_edge(p, q, r, rng))
+    elif kind == "tri":                              # a right triangle, legs labelled in cm
+        a, b = (float(v) for v in arg.split(","))
+        k = 60.0
+        A, B, C = (x0 + 40, y0 + 40 + b * k), (x0 + 40 + a * k, y0 + 40 + b * k), (x0 + 40, y0 + 40)
+        for p, q in ((A, B), (B, C), (C, A)):
+            strokes.append(_edge(p, q, 0, rng))
+        for txt, pos in ((f"{a:g} cm", (x0 + 40 + a * k / 2 - 40, y0 + 60 + b * k)),
+                         (f"{b:g} cm", (x0 - 70, y0 + 40 + b * k / 2 - 20))):
+            for st in marks.text(txt, pos, height=34):
+                strokes.append([[p[0], p[1], .6] for p in st["points"]])
     elif kind == "graph":
         names = sorted({ch for e in arg.split(",") for ch in e})
         spots = [(0, 0), (220, -60), (220, 120), (440, 40), (440, 220)]
@@ -553,15 +575,18 @@ def rescore(json_path: str, real: str | None = None) -> list[Run]:
 
 def main(configs: list[str], scenarios: list[str] | None, out_dir: str, log=print, real: str | None = None):
     runs = []
-    pool = SCENARIOS + SUBJECT_SCENARIOS + PDF_SCENARIOS + (real_scenarios(real) if real else [])
+    pool = SCENARIOS + SUBJECT_SCENARIOS + PDF_SCENARIOS + GEOMETRY_SCENARIOS + (real_scenarios(real) if real else [])
     if scenarios == ["subjects"]:
         chosen = SUBJECT_SCENARIOS
     elif scenarios == ["pdf"]:
         chosen = PDF_SCENARIOS
+    elif scenarios == ["geometry"]:
+        chosen = GEOMETRY_SCENARIOS
     elif scenarios:
         chosen = [s for s in pool if s.name in scenarios]
     else:
-        chosen = [s for s in pool if s not in SUBJECT_SCENARIOS and s not in PDF_SCENARIOS]
+        chosen = [s for s in pool if s not in SUBJECT_SCENARIOS and s not in PDF_SCENARIOS
+                  and s not in GEOMETRY_SCENARIOS]
     for cfg in configs:
         reader_spec, _, judge_spec = cfg.partition("@")
         judge_spec = judge_spec or models.DEFAULT

@@ -71,7 +71,7 @@ PRINTED = (" Printed text (an exercise sheet under the handwriting, thin and reg
 def read(model, strokes: list[dict], background=None) -> tuple[str, list[Element]]:
     """Student strokes -> (subject, elements). Agent ink is left out of the picture on purpose.
     `background`: the printed page (PDF) under the ink - then the exercise text is read too."""
-    img = pagemod.render(strokes, authors=("user",), background=background)
+    img = pagemod.render(strokes, authors=("user",), background=background, crop=True)
     fx0, fy0, fx1, fy1 = img.info["frame"]       # the image covers this part of the page
     data = model.json([pagemod.png_bytes(img)], READ_PROMPT + (PRINTED if background is not None else ""),
                       READ_SCHEMA)
@@ -108,7 +108,7 @@ def judge(model, strokes: list[dict], elements: list[Element], profile, *,
               "worth saying."
               + (" Elements of kind 'printed' are the exercise sheet: never mark them, judge the handwritten "
                  "answers against them." if any(e.kind == "printed" for e in elements) else ""))
-    img = pagemod.render(strokes, authors=("user", "agent"), background=background)
+    img = pagemod.render(strokes, authors=("user", "agent"), background=background, crop=True)
     data = model.json([pagemod.png_bytes(img)], prompt, JUDGE_SCHEMA)
     return [(Action(element=a["element"], verdict=a["verdict"], mark=a["mark"], text=a["text"], why=a["why"]),
              a["speech"]) for a in data["actions"]]

@@ -54,7 +54,8 @@ def read_strokes(path: str) -> list[dict]:
 
 
 def render(strokes: list[dict], *, width: int = PAGE_W, height: int | None = None, scale: float = 0.5,
-           authors: tuple[str, ...] = ("user", "agent"), background: Image.Image | None = None) -> Image.Image:
+           authors: tuple[str, ...] = ("user", "agent"), background: Image.Image | None = None,
+           crop: bool = False) -> Image.Image:
     """Draw the strokes on white paper. The frame follows the ink on both axes: on the device a page
     is longer when scrolled and wider when zoomed out (seen 2026-10-23: x from -454 to 2099 on a
     1620 px page). A frame cut to the paper format silently drops the left edge of the writing.
@@ -65,16 +66,21 @@ def render(strokes: list[dict], *, width: int = PAGE_W, height: int | None = Non
     x0 = min(0, int(min(xs, default=0)) - 30)
     x1 = max(width, int(max(xs, default=0)) + 30)
     y1 = max(height or PAGE_H, int(max(ys, default=0)) + 40)
-    img = Image.new("RGB", (int((x1 - x0) * scale), int(y1 * scale)), "white")
+    # crop: start at the ink, not at the top of the page - live test 24.10.: writing far down sent
+    # a mostly empty image to the model, and every empty pixel costs reading time
+    y0 = max(0, int(min(ys, default=0)) - 60) if crop and background is None else 0
+    if crop:
+        y1 = int(max(ys, default=0)) + 60 if background is None else y1
+    img = Image.new("RGB", (int((x1 - x0) * scale), int((y1 - y0) * scale)), "white")
     if background is not None:
         bg = background.convert("RGB").resize((int(PAGE_W * scale), int(PAGE_H * scale)))
         img.paste(bg, (int(-x0 * scale), 0))
-    img.info["frame"] = [x0, 0, x1, y1]
+    img.info["frame"] = [x0, y0, x1, y1]
     d = ImageDraw.Draw(img)
     for s in strokes:
         if s.get("author", "user") not in authors:
             continue
-        xy = [((p[0] - x0) * scale, p[1] * scale) for p in s["points"]]
+        xy = [((p[0] - x0) * scale, (p[1] - y0) * scale) for p in s["points"]]
         w = max(1, int(round(s.get("width", 3) * scale)))
         if len(xy) == 1:
             x, y = xy[0]

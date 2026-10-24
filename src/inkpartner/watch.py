@@ -158,7 +158,9 @@ class Tablet:
             return cache[rel][0], "remembered"
         from . import calibrate                         # measured with the agent's own L
         c = calibrate.load(rel)
-        if c and mon is not None and mon.last_touch < c[1]:
+        # only a calibration this watcher has seen the screen since: a finger that scrolled while no
+        # watcher ran is not in last_touch (live test 24.10.: L at 19:13, watcher later, notes ~60 px off)
+        if c and mon is not None and mon.last_touch < c[1] and c[1] >= getattr(mon, "started", 0.0):
             return c[0], "remembered"
         return None, None
 

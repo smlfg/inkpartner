@@ -1164,3 +1164,16 @@ class Calibration(unittest.TestCase):
         self.assertEqual(vp.turn, 1j)
         self.assertLess(rms, 1)
         self.assertAlmostEqual(vp.to_screen(*saved[0])[0], sent[0][0], delta=1)
+
+    def test_calibration_older_than_the_watcher_is_not_trusted(self):
+        # a finger that scrolled while no watcher ran is in no last_touch (live test 24.10.)
+        from unittest import mock
+        from inkpartner import calibrate, watch
+        from inkpartner.viewport import Viewport
+        tab = watch.Tablet.__new__(watch.Tablet)
+        tab.monitor = SimpleNamespace(reader=SimpleNamespace(strokes=[]), last_touch=0.0, started=1000.0)
+        vp = Viewport(1.0, 0.0, 0.0, 1.0)
+        with mock.patch.object(calibrate, "load", return_value=(vp, 900.0, [])):
+            self.assertEqual(tab.known_viewport("d/p.rm", []), (None, None))
+        with mock.patch.object(calibrate, "load", return_value=(vp, 1100.0, [])):
+            self.assertEqual(tab.known_viewport("d/p.rm", []), (vp, "remembered"))

@@ -152,6 +152,7 @@ def from_pen(screen_strokes, page_strokes, n: int = 4, max_rms: float = 8.0, max
             break
         vp, rms = _fit(scr[-k:], page_strokes[-k:])
         if vp is not None and 0.3 < vp.scale < 4 and rms < best[1]:
+            vp.shift = shift                            # newest pen strokes not yet in the file
             best = (vp, rms)
     vp, rms = best
     if vp is None or rms > max_rms:

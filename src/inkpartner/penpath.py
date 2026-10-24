@@ -106,10 +106,10 @@ class PenPath:
     def viewport(self, rel, page_strokes):
         # first choice: the student's last strokes, seen on the screen and on the page (exact, and it
         # follows scrolling - the thumbnail shows the top of the page, found on the device 24.10.)
-        pen = getattr(self.dev, "pen_viewport", None)
-        vp = pen(page_strokes) if pen else None
+        known = getattr(self.dev, "known_viewport", None)
+        vp, src = known(rel, page_strokes) if known else (None, None)
         if vp is not None:
-            self.source = "pen"
+            self.source = src
             return vp
         self.source = "thumbnail"
         png = self.dev.thumbnail(rel)
@@ -144,6 +144,13 @@ class PenPath:
         screen = to_screen(strokes, vp)
         if screen is None:
             raise GuardError("R-OFFSCREEN: the mark would leave the visible part of the page")
+        if getattr(self, "source", "") in ("pen", "remembered"):
+            # the viewport is measured, not guessed, and no finger moved the page since: no probe.
+            # The app saves pen strokes up to a minute late (live test 24.10.) - a probe would cost that.
+            self.dev.send(screen)
+            self.last = {"viewport": [round(vp.scale, 3), round(vp.ox), round(vp.oy), round(vp.score, 2)],
+                         "source": self.source}
+            return {"status": "sent_direct", "strokes": len(screen), **self.last}
         i = pick_probe(strokes, [s for s in before if s.get("author") == "user"])
         self.dev.send([screen[i]])
         fresh, after = self._after(rel, before, 1)

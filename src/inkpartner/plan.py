@@ -90,6 +90,9 @@ def validate(actions: list[Action], elements: list[Element], profile, *, deliver
         elif a.verdict in ("correct", "wrong") and any(
                 v in ("correct", "wrong") and v != a.verdict and _iou(b, el.bbox) > 0.8 for b, v in placed or []):
             reason = "contradicts feedback already on the page (the ink has not changed)"
+        elif a.verdict in ("correct", "wrong") and any(
+                v == a.verdict and _iou(b, el.bbox) > 0.6 for b, v in placed or []):
+            reason = "already on the page"
         elif el.id in overrides and a.verdict in ("correct", "wrong") and overrides[el.id] != a.verdict:
             reason = f"contradicts the deterministic check ({overrides[el.id]})"
         elif a.mark == "note" and not a.text.strip():

@@ -140,8 +140,35 @@ class Tablet:
         mon = self.monitor
         if not mon or not mon.reader.strokes:
             return None
-        user = [s for s in page_strokes if s.get("author") == "user"]
-        return viewport.from_pen([pts for _, pts in mon.reader.strokes], user)
+        user = [s for s in page_strokes if s.get("author") == "user" and not s.get("live")]
+        return viewport.from_pen([pts for _, pts in mon.reader.strokes], user, max_shift=40)
+
+    def known_viewport(self, rel: str, page_strokes: list[dict]):
+        """(viewport, source): measured from the pen now, or remembered for this page as long as no
+        finger touched the screen since (scrolling and zooming are finger gestures). (None, None) if
+        neither - then the caller falls back to the thumbnail and the probe stroke."""
+        cache = self.__dict__.setdefault("_vp_cache", {})
+        vp = self.pen_viewport(page_strokes)
+        if vp is not None:
+            cache[rel] = (vp, time.time())
+            return vp, "pen"
+        mon = self.monitor
+        if rel in cache and mon is not None and mon.last_touch < cache[rel][1]:
+            return cache[rel][0], "remembered"
+        return None, None
+
+    def live_strokes(self, rel: str, page_strokes: list[dict]) -> list[dict]:
+        """The student's newest strokes that the notes app has not saved yet, in page pixels, from
+        the pen. Live test 24.10.: the app saved up to a minute late, the agent waited for the file."""
+        vp = self.pen_viewport(page_strokes)
+        if vp is None or not getattr(vp, "shift", 0):
+            return []
+        self.__dict__.setdefault("_vp_cache", {})[rel] = (vp, time.time())
+        out = []
+        for _, pts in self.monitor.reader.strokes[-vp.shift:]:
+            out.append({"points": [[*vp.to_page(x, y), 0.6] for x, y in pts], "color": "black",
+                        "author": "user", "live": True})
+        return out
 
     def strokes(self, data: bytes) -> list[dict]:
         with tempfile.TemporaryDirectory() as tmp:
@@ -220,12 +247,21 @@ class PenMonitor:
         from .penstream import Reader
         self.host, self.device = host, device
         self.reader = Reader()                          # the student's strokes in screen pixels
+        self.last_touch = 0.0                           # last finger on the screen: scroll or zoom
         self.last_real: float | None = None
         self.started = time.time()
         self.injecting = False
         self.activity: list[float] = []
         self._t = threading.Thread(target=self._run, daemon=True)
         self._t.start()
+        threading.Thread(target=self._touch, daemon=True).start()
+
+    def _touch(self, device: str = "event3"):
+        """Fingers scroll and zoom. Any touch makes a remembered viewport doubtful."""
+        p = subprocess.Popen(["ssh", "-o", "BatchMode=yes", self.host, f"cat /dev/input/{device}"],
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        while p.stdout.read(24 * 8):
+            self.last_touch = time.time()
 
     def _run(self):
         import struct
@@ -263,6 +299,7 @@ class PageState:
     own_sigs: set[str] = field(default_factory=set)     # pen-path strokes: agent ink in the student's layer
     help_levels: dict = field(default_factory=dict)     # task -> how often help was given (tutor.py)
     verdicts: dict = field(default_factory=dict)        # action key -> [bbox, verdict] of green/red marks
+    expected: list = field(default_factory=list)        # marks sent without read-back: agent ink once saved
 
 
 class Watcher:
@@ -300,7 +337,8 @@ class Watcher:
                 self.pages[rel] = PageState(tuple(d["stamp"]), 0.0, d["reviewed_sha"], d["own_sha"],
                                             set(d["delivered"]), own_sigs=set(d.get("own_sigs", [])),
                                             help_levels=dict(d.get("help_levels", {})),
-                                            verdicts=dict(d.get("verdicts", {})))
+                                            verdicts=dict(d.get("verdicts", {})),
+                                            expected=list(d.get("expected", [])))
         except (OSError, ValueError, KeyError):
             pass
 
@@ -309,7 +347,8 @@ class Watcher:
         self.state_file.write_text(json.dumps({rel: {"stamp": p.stamp, "reviewed_sha": p.reviewed_sha,
                                                      "own_sha": p.own_sha, "delivered": sorted(p.delivered),
                                                      "own_sigs": sorted(p.own_sigs),
-                                                     "help_levels": p.help_levels, "verdicts": p.verdicts}
+                                                     "help_levels": p.help_levels, "verdicts": p.verdicts,
+                                                     "expected": p.expected[-100:]}
                                                for rel, p in self.pages.items()}))
 
     # ------------------------------------------------------------------- loop
@@ -331,6 +370,16 @@ class Watcher:
                     self.log(f"new page: {self.tablet.name(rel)} ({rel})")
             elif st.stamp != stamp:
                 st.stamp, st.last_change = stamp, now
+        if first:
+            # retroactive: the page open at start is looked at once, however old its writing
+            op = self.tablet.open_page() if hasattr(self.tablet, "open_page") else None
+            rel0 = f"{op[0]}/{op[1]}.rm" if op else None
+            if rel0 in self.pages and self.pages[rel0].last_change == 0.0:
+                self.pages[rel0].last_change = float(self.pages[rel0].stamp[0])
+        # the pen says the student wrote and paused; the file may come up to a minute later
+        live = self._pen_review(now)
+        if live is not None:
+            return live
         # escalation: feedback that could not be written waits here until a safe path is open
         for rel, st in self.pages.items():
             if st.pending:
@@ -346,14 +395,40 @@ class Watcher:
             return None                                 # nothing new, or only the agent's own echo
         return self.review(rel, st, data, h, now)
 
-    def review(self, rel: str, st: PageState, data: bytes, h: str, now: float):
+    def _pen_review(self, now):
+        mon = getattr(self.tablet, "monitor", None)
+        if mon is None or not hasattr(mon, "reader") or not hasattr(self.tablet, "live_strokes"):
+            return None
+        n = len(mon.reader.strokes)
+        if n == getattr(self, "_pen_reviewed", 0) or (mon.idle_s() or 0) < self.settle_s:
+            return None
+        self._pen_reviewed = n
+        op = self.tablet.open_page()
+        if not op:
+            return None
+        rel = f"{op[0]}/{op[1]}.rm"
+        data = self.tablet.fetch(rel)
+        live = self.tablet.live_strokes(rel, self.tablet.strokes(data))
+        if not live:
+            return None                                 # all saved already, or no viewport: the file path decides
+        st = self.pages.setdefault(rel, PageState(self.tablet.scan().get(rel, (0, 0)), now))
+        self.log(f"  pen: {len(live)} stroke(s) not saved yet - reviewing from the pen")
+        return self.review(rel, st, data, sha(data) + f":pen{n}", now, extra=live)
+
+    def review(self, rel: str, st: PageState, data: bytes, h: str, now: float, extra: list | None = None):
         with tempfile.TemporaryDirectory() as tmp:
             src = os.path.join(tmp, "page.rm")
             Path(src).write_bytes(data)
             strokes = pagemod.read_strokes(src)
+            from .penpath import stroke_sig
+            if st.expected:                             # marks sent without read-back, now saved
+                for x in strokes:
+                    if x.get("author") == "user" and stroke_sig(x) not in st.own_sigs and \
+                            verify.coverage({"points": x["points"]}, st.expected, tol=10) >= 0.8:
+                        st.own_sigs.add(stroke_sig(x))
             if st.own_sigs:                             # the pen path's marks are not the student's writing
-                from .penpath import stroke_sig
                 strokes = [dict(x, author="agent") if stroke_sig(x) in st.own_sigs else x for x in strokes]
+            strokes = strokes + list(extra or [])       # what the pen wrote that the file has not caught up with
             strokes = focus(strokes)
             t0 = time.time()
             bg = getattr(self.tablet, "background", None)
@@ -378,7 +453,10 @@ class Watcher:
             if not r.strokes:
                 self._save()
                 return r
-            if self.tablet.fetch(rel) != data:
+            mon = getattr(self.tablet, "monitor", None)
+            wrote = bool(mon and hasattr(mon, "active_between") and mon.active_between(t0, time.time()))
+            # a review from the pen: the app saving those very strokes meanwhile is no new writing
+            if (wrote if extra else self.tablet.fetch(rel) != data):
                 self.log("  student wrote meanwhile - feedback dropped, next round")
                 st.reviewed_sha = ""
                 return r
@@ -419,6 +497,13 @@ class Watcher:
                 st.pending = {"strokes": list(r.strokes), "base_sha": h, "speech": "", "since": now}
                 self.retry_pending(rel, st, now)
                 return {"path": "pen", "refused": True, "pending": True}
+            if sent.get("status") == "sent_direct":
+                # measured viewport, no read-back wait (the app saves late). Counted as delivered so
+                # it is never sent twice; once saved, the marks are recognised as agent ink (expected).
+                st.delivered |= {s["action"] for s in r.strokes}
+                st.expected = (st.expected + [{"points": s["points"]} for s in r.strokes])[-300:]
+                self.pen_failures = 0
+                return {"path": "pen", **sent}
             before = pagemod.read_strokes(src)
             states, after_bytes = {}, data
             for _ in range(self.verify_tries):              # xochitl saves the pen strokes itself, a bit later

@@ -39,6 +39,19 @@ from . import review, verify
 XOCHITL = "/home/root/.local/share/remarkable/xochitl"
 
 
+def focus(strokes: list[dict], newest: int = 8, above: float = 900.0, below: float = 150.0) -> list[dict]:
+    """Only the part of the page around the newest writing goes to the model. A long page (7600 px on
+    2026-10-24) took 30-50 s per round; old lines already have their feedback. The window keeps the
+    exercise above the new lines for context."""
+    user = [s for s in strokes if s.get("author") == "user" and s["points"]]
+    if len(user) <= newest:
+        return strokes
+    ys = [p[1] for s in user[-newest:] for p in s["points"]]
+    lo, hi = min(ys) - above, max(ys) + below
+    return [s for s in strokes if s["points"] and lo <= min(p[1] for p in s["points"]) and
+            max(p[1] for p in s["points"]) <= hi]
+
+
 def parse_open_page(log: str) -> tuple[str, str] | None:
     """The last document opened, its last loaded page, and the page last saved while it is open."""
     doc = page = None
@@ -253,7 +266,7 @@ class PageState:
 
 
 class Watcher:
-    def __init__(self, tablet: Tablet, model, *, subject=None, settle_s=4.0, restart_quiet_s=1800.0,
+    def __init__(self, tablet: Tablet, model, *, subject=None, settle_s=3.0, restart_quiet_s=1800.0,
                  allow_restart=False, recent_s=600.0, pen=True, log=print, state_file=None,
                  speak=None, speech_allowed=False, pen_rest_s=900.0, restart_gap_s=3600.0,
                  reader=None, judge_model=None, teach=True):
@@ -270,7 +283,7 @@ class Watcher:
                 self.log(f"pen path unavailable ({e}); only the file path when the page is quiet")
         elif pen:
             self.pen = pen
-        self.verify_tries, self.verify_wait_s = 5, 2.0
+        self.verify_tries, self.verify_wait_s = 8, 1.0
         self.speak, self.speech_allowed = speak, speech_allowed
         self.reader, self.judge_model = reader, judge_model
         self.teach = teach
@@ -341,6 +354,7 @@ class Watcher:
             if st.own_sigs:                             # the pen path's marks are not the student's writing
                 from .penpath import stroke_sig
                 strokes = [dict(x, author="agent") if stroke_sig(x) in st.own_sigs else x for x in strokes]
+            strokes = focus(strokes)
             t0 = time.time()
             bg = getattr(self.tablet, "background", None)
             r = review.run(strokes, model=self.model, subject=self.subject, delivered=st.delivered,
@@ -374,8 +388,11 @@ class Watcher:
                     if k in r.tutor and words:
                         self.speak(words)
                         self.log(f"  spoken (level {r.tutor[k]['level']}): {words[:80]}...")
+            t_del = time.time()
             result = self.deliver(rel, st, src, data, h, r, now)
             self.log(f"  delivery: {result}")
+            self.log(f"  timing: pause {self.settle_s:.0f}s + reading/judging {t_del - t0:.1f}s + "
+                     f"writing {time.time() - t_del:.1f}s")
             self._save()
             return r
 
@@ -529,7 +546,7 @@ class Watcher:
             self.log("  spoken while writing is not possible")
 
 
-def run(host="remarkable", model=None, subject=None, interval_s=3.0, once=False, **kw):
+def run(host="remarkable", model=None, subject=None, interval_s=1.5, once=False, **kw):
     """Loop forever (or until the first review with --once). Stops for good on the kill switch."""
     from . import models
     from .guards import Stopped

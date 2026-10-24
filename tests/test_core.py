@@ -1050,3 +1050,12 @@ class ViewportFromPen(unittest.TestCase):
         a = {"points": [[0, 0], [100, 0]]}
         b = {"points": [[0, 0], [0, 100]]}
         self.assertIsNone(viewport.from_pen([[[500, 500], [600, 500]], [[900, 900], [905, 1300]]], [a, b]))
+
+
+class Focus(unittest.TestCase):
+    def test_only_the_area_around_the_newest_writing_is_read(self):
+        from inkpartner.watch import focus
+        old = [{"points": [[100, 100 + i * 10], [200, 100 + i * 10]], "author": "user"} for i in range(10)]
+        new = [{"points": [[100, 7000 + i * 10], [200, 7000 + i * 10]], "author": "user"} for i in range(8)]
+        kept = focus(old + new)
+        self.assertEqual(len(kept), 8)

@@ -95,7 +95,7 @@ class PenPath:
     """`dev` is the tablet side: thumbnail(rel) -> png | None, fetch(rel) -> bytes,
     strokes(bytes) -> page strokes, send(screen strokes). The guard checks run before (watch.py)."""
 
-    def __init__(self, dev, *, min_score=0.5, tol=8.0, wait_s=2.0, tries=5, sleep=time.sleep):
+    def __init__(self, dev, *, min_score=0.5, tol=8.0, wait_s=1.0, tries=8, sleep=time.sleep):
         self.dev, self.min_score, self.tol = dev, min_score, tol
         self.wait_s, self.tries, self.sleep = wait_s, tries, sleep
         self.correction = (0.0, 0.0)          # learned from the last probe that landed off ...

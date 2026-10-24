@@ -36,8 +36,8 @@ def main(argv=None) -> int:
     w.add_argument("--host", default="remarkable")
     w.add_argument("--model", help="model chain, default ollama:qwen3.6:35b-a3b")
     w.add_argument("--subject", choices=["math", "code", "diagram", "pm", "prose"])
-    w.add_argument("--interval", type=float, default=3.0)
-    w.add_argument("--settle", type=float, default=4.0, help="seconds without a new stroke before a review")
+    w.add_argument("--interval", type=float, default=1.5)
+    w.add_argument("--settle", type=float, default=3.0, help="seconds without a new stroke before a review")
     w.add_argument("--allow-restart", action="store_true",
                    help="LAST RESORT: allow the file path; it restarts the notes app and logs the student out")
     w.add_argument("--restart-quiet", type=float, default=1800.0,

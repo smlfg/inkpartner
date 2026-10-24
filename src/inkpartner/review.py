@@ -23,7 +23,8 @@ class Round:
 
 def run(strokes: list[dict], *, model=None, subject: str | None = None, elements: list[Element] | None = None,
         proposals: list[tuple[plan.Action, str]] | None = None, delivered: set[str] = frozenset(),
-        reader=None, judge_model=None, tutor_model=None, help_levels: dict | None = None) -> Round:
+        reader=None, judge_model=None, tutor_model=None, help_levels: dict | None = None,
+        background=None) -> Round:
     """`elements` / `proposals` can be given (tests, replays); otherwise the model provides them.
     `reader` (readers.get) replaces the default reading; `judge_model` judges instead of `model`.
     With `tutor_model` and `help_levels` (task -> how often help was given) a help request is answered
@@ -31,14 +32,18 @@ def run(strokes: list[dict], *, model=None, subject: str | None = None, elements
     from . import agent
     if elements is None:
         from .geometry import snap
-        guessed, elements = reader(strokes) if reader else agent.read(model, strokes)
+        if reader:      # readers without a background parameter keep working on plain pages
+            guessed, elements = reader(strokes, background=background) if background is not None else reader(strokes)
+        else:
+            guessed, elements = agent.read(model, strokes, background)
         elements = snap(elements, strokes)           # marks land on the real ink, not the model's guess
         subject = subject or guessed
     subject = subject or "math"
     profile = profiles.get(subject)
     checked = mathcheck.check_steps(elements) if profile.deterministic == "sympy" else {}
     if proposals is None:
-        proposals = agent.judge(judge_model or model, strokes, elements, profile, checked=checked)
+        proposals = agent.judge(judge_model or model, strokes, elements, profile, checked=checked,
+                                background=background)
     # What the checker proved correct gets its check mark even if the model forgot it -
     # "bis hierhin fehlerfrei" should not depend on the model's mood.
     # The same for a step the checker proved wrong: the red circle does not depend on the model either.

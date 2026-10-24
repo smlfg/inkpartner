@@ -54,6 +54,8 @@ def main(argv=None) -> int:
                                        "last line of the open page, probe first, read back")
     pt.add_argument("--host", default="remarkable")
     pt.add_argument("--wait", type=float, default=2.0, help="seconds between read-backs")
+    ch = sub.add_parser("chaossim", help="round 7: page / notebook / folder switches, no model")
+    ch.add_argument("--out", default="sim-out-chaos")
     te = sub.add_parser("tutoreval", help="round 5: help prompts x levels x models, graded")
     te.add_argument("--gen", action="append", required=True, help="generator model (repeatable)")
     te.add_argument("--grader", action="append", help="grader model (repeatable; default gemma4)")
@@ -77,6 +79,11 @@ def main(argv=None) -> int:
     if a.cmd == "pentest":
         from . import watch
         print(json.dumps(watch.pentest(a.host, wait_s=a.wait), ensure_ascii=False, indent=1))
+        return 0
+
+    if a.cmd == "chaossim":
+        from . import simchaos
+        print(json.dumps(simchaos.report(simchaos.run(), os.path.join(a.out, "REPORT.md")), ensure_ascii=False, indent=1))
         return 0
 
     if a.cmd == "tutoreval":

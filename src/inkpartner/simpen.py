@@ -30,9 +30,9 @@ from .viewport import SCREEN, Viewport
 
 
 class ScreenTablet(SimTablet):
-    def __init__(self, workdir, view: Viewport, thumb: Viewport):
+    def __init__(self, workdir, view: Viewport, thumb: Viewport, paper: str = "grid", printed: str = ""):
         super().__init__(workdir)
-        self.view, self.thumb = view, thumb
+        self.view, self.thumb, self.paper, self.printed = view, thumb, paper, printed
 
     def thumbnail(self, rel):
         from PIL import Image, ImageDraw
@@ -41,10 +41,27 @@ class ScreenTablet(SimTablet):
         img = Image.new("RGB", (W, H), (250, 250, 248))
         d = ImageDraw.Draw(img)
         v = self.thumb
-        for g in range(0, 2200, 52):                   # grid paper, drawn in page space
-            for a, b in (((g, 0), (g, 2160)), ((0, g), (1620, g))):
+        tone = {"grid": 214, "lines": 175, "dots": 150, "blank": None, "pdf": None}[self.paper]
+        for g in range(0, 2200, 52):                   # the template, drawn in page space
+            if tone is None:
+                break
+            if self.paper == "dots":
+                for h in range(0, 1700, 52):
+                    q = v.to_screen(h, g)
+                    d.point((q[0] * k, q[1] * k), fill=(tone,) * 3)
+                continue
+            lines = [((0, g), (1620, g))] + ([((g, 0), (g, 2160))] if self.paper == "grid" else [])
+            for a, b in lines:
                 pa, pb = v.to_screen(*a), v.to_screen(*b)
-                d.line([(pa[0] * k, pa[1] * k), (pb[0] * k, pb[1] * k)], fill=(214, 214, 214))
+                d.line([(pa[0] * k, pa[1] * k), (pb[0] * k, pb[1] * k)], fill=(tone,) * 3)
+        if self.printed:                               # a PDF: printed text is dark ink in the screenshot
+            from .sim import printed_page
+            sheet = printed_page(self.printed).convert("L")
+            for yy in range(0, sheet.height, 3):
+                for xx in range(0, sheet.width, 3):
+                    if sheet.getpixel((xx, yy)) < 128:
+                        q = v.to_screen(xx, yy)
+                        d.point((q[0] * k, q[1] * k), fill=(55, 55, 55))
         for s in self.strokes():
             pts = [(x * k, y * k) for x, y in (v.to_screen(p[0], p[1]) for p in s["points"])]
             if len(pts) > 1:
@@ -92,6 +109,8 @@ class Case:
     thumb: tuple           # viewport of the last screenshot
     expect: str            # delivered | refused
     lines: int = 3
+    paper: str = "grid"    # template on the screenshot: grid | lines | dots | blank | pdf
+    printed: str = ""
 
 
 CASES = [
@@ -107,6 +126,13 @@ CASES = [
     Case("veraltet-nach-links", (1.2, 150, -40), (1, 0, 0), "delivered"),
     Case("veraltet-eine-zeile", (1, 0, 170), (1, 0, 0), "delivered"),
     Case("veraltet-zwei-zeilen", (1, 0, 340), (1, 0, 0), "delivered"),
+    Case("vorlage-linien", (1, 0, 0), (1, 0, 0), "delivered", paper="lines"),
+    Case("vorlage-punkte", (1.2, -100, -50), (1.2, -100, -50), "delivered", paper="dots"),
+    Case("vorlage-leer", (1, 0, -100), (1, 0, -100), "delivered", paper="blank"),
+    Case("pdf-aufgabenblatt", (1, 0, 0), (1, 0, 0), "delivered", paper="pdf",
+         printed="Aufgabe 1: Berechne (a+b)^2 und vereinfache"),
+    Case("pdf-veraltet", (1, 0, -120), (1, 0, 0), "delivered", paper="pdf",
+         printed="Aufgabe 1: Berechne (a+b)^2 und vereinfache"),
     Case("kurze-seite", (1, 0, 0), (1, 0, 0), "delivered", lines=1),
 ]
 
@@ -158,7 +184,8 @@ def build_page(tab, n, rng):
 
 def run_case(c: Case, out_dir: str, seed=4, max_attempts=2) -> CaseResult:
     rng = random.Random(seed)
-    tab = ScreenTablet(tempfile.mkdtemp(prefix="inkp-pen-"), Viewport(*c.view, 1.0), Viewport(*c.thumb, 1.0))
+    tab = ScreenTablet(tempfile.mkdtemp(prefix="inkp-pen-"), Viewport(*c.view, 1.0), Viewport(*c.thumb, 1.0),
+                       paper=c.paper, printed=c.printed)
     plan = build_page(tab, c.lines, rng)
     student = [s for s in tab.strokes()]
     path = PenPath(Device(tab), wait_s=0, tries=1, sleep=lambda s: None)

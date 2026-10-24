@@ -27,26 +27,43 @@ def _subject_from(text: str) -> str:
 
 
 def cluster_lines(strokes: list[dict], gap: float = 0.6) -> list[list[dict]]:
-    """Group strokes into lines by vertical overlap of their boxes (simple, slant-tolerant)."""
+    """Group strokes into lines by vertical overlap of their boxes (simple, slant-tolerant).
+
+    Two passes. Round 7 found small strokes (an i-dot, a dash) deciding where lines are: a dot 90 px
+    below one line opened its own "line" or pulled the next line into the last. So the lines are
+    built from strokes of ordinary letter size first; dots, accents and short dashes then join the
+    nearest line if they are close to it."""
     items = []
     for s in strokes:
         ys = [p[1] for p in s["points"]]
         items.append((min(ys), max(ys), s))
-    items.sort(key=lambda t: (t[0] + t[1]) / 2)
+    if not items:
+        return []
+    heights = sorted(y1 - y0 for y0, y1, _ in items)
+    med = max(1.0, heights[len(heights) // 2])
+    big = sorted([t for t in items if t[1] - t[0] >= 0.4 * med], key=lambda t: (t[0] + t[1]) / 2)
+    small = [t for t in items if t[1] - t[0] < 0.4 * med]
     lines: list[list] = []
-    for y0, y1, s in items:
+    for y0, y1, s in big:
         if lines:
             ly0, ly1, ls = lines[-1]
-            overlap = min(y1, ly1) - max(y0, ly0)
-            if overlap > -gap * 0.3 * max(1.0, ly1 - ly0) or (y1 - y0) < 0.3 * (ly1 - ly0):
+            if min(y1, ly1) - max(y0, ly0) > -gap * 0.3 * max(1.0, ly1 - ly0):
                 lines[-1] = [min(ly0, y0), max(ly1, y1), ls + [s]]
                 continue
         lines.append([y0, y1, [s]])
+    for y0, y1, s in small:
+        c = (y0 + y1) / 2
+        best = min(lines, key=lambda l: max(l[0] - c, 0, c - l[1]), default=None)
+        if best is not None and max(best[0] - c, 0, c - best[1]) <= 0.6 * max(1.0, best[1] - best[0]):
+            best[2].append(s)
+        else:
+            lines.append([y0, y1, [s]])
+    lines.sort(key=lambda l: l[0])
     return [l[2] for l in lines]
 
 
-def read_vlm(model, strokes):
-    return agent.read(model, strokes)
+def read_vlm(model, strokes, background=None):
+    return agent.read(model, strokes, background)
 
 
 LINE_SCHEMA = {"type": "object", "properties": {"text": {"type": "string"}, "confidence": {"type": "number"},
@@ -166,19 +183,20 @@ def get(spec: str, screenshot=None):
         if screenshot is None:
             raise ValueError("shot: reader needs a screenshot source")
         m = models.get(rest or None)
-        return lambda strokes: read_shot(m, *screenshot())
+        return lambda strokes, background=None: read_shot(m, *screenshot())
     if kind == "vlm":
         m = models.get(rest or None)
-        return lambda strokes: read_vlm(m, strokes)
+        return lambda strokes, background=None: read_vlm(m, strokes, background)
     if kind == "lines":
         m = models.get(rest or None)
-        return lambda strokes: read_lines(m, strokes)
+        return lambda strokes, background=None: read_lines(m, strokes)
     if kind == "agree":
         a, _, b = rest.partition("+")
         first, second = get(a, screenshot), get(b, screenshot)
-        return lambda strokes: agree(first, second, strokes)
+        return lambda strokes, background=None: agree(lambda s: first(s, background=background),
+                                                      lambda s: second(s, background=background), strokes)
     if spec == "ocr:tesseract":
-        return read_tesseract
+        return lambda strokes, background=None: read_tesseract(strokes)
     if spec == "ocr:apple":
-        return read_apple
+        return lambda strokes, background=None: read_apple(strokes)
     raise ValueError(f"unknown reader {spec!r}")

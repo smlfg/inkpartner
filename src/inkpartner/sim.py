@@ -45,6 +45,8 @@ class Scenario:
     subject: str
     lines: list[Line]
     source: str | None = None      # a real .rm page: its strokes are replayed line by line
+    printed: str = ""              # round 7: exercise printed on a PDF page under the handwriting
+    show_printed: bool = True      # False: the same page, but the agent gets no background (A/B)
 
 
 def real_line_ink(sc: Scenario) -> list[list[dict]]:
@@ -105,6 +107,33 @@ SUBJECT_SCENARIOS = [
     Scenario("graph-weg-hilfe", "diagram", [Line("[Graph]", "ok", draw="graph:AB,AC,CD,BD"),
                                             Line("kuerzester Weg von A nach D?", "help")]),
 ]
+
+
+# Round 7: PDF exercise sheets. Each runs twice: with the printed page given to the agent and without.
+_PDF = [
+    ("pdf-binom-falsch", "Aufgabe 1: Berechne (a+b)^2", [Line("a^2+b^2", "wrong")]),
+    ("pdf-binom-richtig", "Aufgabe 1: Berechne (a+b)^2", [Line("a^2+2ab+b^2", "ok")]),
+    ("pdf-ableitung-falsch", "Aufgabe 2: Leite ab: f(x) = x^3", [Line("f'(x) = 3x", "wrong")]),
+    ("pdf-gleichung-hilfe", "Aufgabe 3: Loese x^2 - 4 = 0", [Line("?", "help")]),
+    ("pdf-gleichung-richtig", "Aufgabe 3: Loese x^2 - 4 = 0", [Line("x = 2 oder x = -2", "ok")]),
+]
+PDF_SCENARIOS = ([Scenario(n, "math", lines, printed=p) for n, p, lines in _PDF]
+                 + [Scenario(n + "-ohne-pdf", "math", lines, printed=p, show_printed=False) for n, p, lines in _PDF])
+
+
+def printed_page(text: str):
+    """A printed exercise sheet: thin, regular, dark grey - the PDF page under the ink."""
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (pagemod.PAGE_W, pagemod.PAGE_H), "white")
+    d = ImageDraw.Draw(img)
+    x = 150.0
+    for seg, sup in _segments(text):
+        h = 52 * (0.55 if sup else 1.0)
+        y = 110 - 52 * 0.35 if sup else 110
+        for st in marks.text(seg, (x, y), height=h):
+            d.line([(p[0], p[1]) for p in st["points"]], fill=(55, 55, 55), width=2)
+        x += marks.text_size(seg, h)[0] + h * 0.15
+    return img
 
 
 def _circle(cx, cy, r, rng, n=28):
@@ -207,6 +236,10 @@ class SimTablet:
         self.guard = Guard(os.path.join(workdir, "STOP"), Limits(), log=lambda *a: None)
         self.monitor = None
         self.allow_restart = False
+        self.bg = None                                  # the printed page (PIL image) or None
+
+    def background(self, rel):
+        return self.bg
 
     def _append(self, strokes, layer):
         tmp = self.path + ".new"
@@ -364,6 +397,10 @@ def run_scenario(sc: Scenario, reader_spec: str, judge_spec: str, out_dir: str, 
     run = Run(f"{reader_spec} | judge {judge_spec}", sc.name)
     w.tick()                                           # the empty page is old news
     y = 220.0
+    if sc.printed:
+        y = 300.0                                      # below the printed exercise
+        if sc.show_printed:
+            tab.bg = printed_page(sc.printed)
     boxes = []
     real = real_line_ink(sc) if sc.source else None
     for i, line in enumerate(sc.lines):
@@ -408,7 +445,7 @@ def run_scenario(sc: Scenario, reader_spec: str, judge_spec: str, out_dir: str, 
     run.lines = [asdict(x) for x in score_lines(sc_lines, boxes, rounds)]
     os.makedirs(out_dir, exist_ok=True)
     run.preview = os.path.join(out_dir, f"{_slug(run.config)}__{sc.name}.png")
-    pagemod.render(tab.strokes(), scale=0.4).save(run.preview)
+    pagemod.render(tab.strokes(), scale=0.4, background=printed_page(sc.printed) if sc.printed else None).save(run.preview)
     return run
 
 
@@ -506,13 +543,15 @@ def rescore(json_path: str, real: str | None = None) -> list[Run]:
 
 def main(configs: list[str], scenarios: list[str] | None, out_dir: str, log=print, real: str | None = None):
     runs = []
-    pool = SCENARIOS + SUBJECT_SCENARIOS + (real_scenarios(real) if real else [])
+    pool = SCENARIOS + SUBJECT_SCENARIOS + PDF_SCENARIOS + (real_scenarios(real) if real else [])
     if scenarios == ["subjects"]:
         chosen = SUBJECT_SCENARIOS
+    elif scenarios == ["pdf"]:
+        chosen = PDF_SCENARIOS
     elif scenarios:
         chosen = [s for s in pool if s.name in scenarios]
     else:
-        chosen = [s for s in pool if s not in SUBJECT_SCENARIOS]
+        chosen = [s for s in pool if s not in SUBJECT_SCENARIOS and s not in PDF_SCENARIOS]
     for cfg in configs:
         reader_spec, _, judge_spec = cfg.partition("@")
         judge_spec = judge_spec or models.DEFAULT

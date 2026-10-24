@@ -88,6 +88,22 @@ class Tablet:
             return None
         return png or None
 
+    def background(self, rel: str):
+        """The printed PDF page under this page, or None (notebook page, template only)."""
+        from . import background as bgmod
+        doc, page = rel.split("/")[0], rel.split("/")[1].removesuffix(".rm")
+        try:
+            info = bgmod.page_info(self.ssh(f"cat {XOCHITL}/{doc}.content"), page)
+        except Exception:
+            return None
+        if info["pdf_page"] is None:
+            return None
+        cache = getattr(self, "_pdf_cache", {})
+        self._pdf_cache = cache
+        if doc not in cache:
+            cache[doc] = self.ssh(f"cat {XOCHITL}/{doc}.pdf", timeout=120)
+        return bgmod.render_pdf_page(cache[doc], info["pdf_page"])
+
     def strokes(self, data: bytes) -> list[dict]:
         with tempfile.TemporaryDirectory() as tmp:
             p = os.path.join(tmp, "page.rm")
@@ -301,7 +317,9 @@ class Watcher:
                 from .penpath import stroke_sig
                 strokes = [dict(x, author="agent") if stroke_sig(x) in st.own_sigs else x for x in strokes]
             t0 = time.time()
+            bg = getattr(self.tablet, "background", None)
             r = review.run(strokes, model=self.model, subject=self.subject, delivered=st.delivered,
+                           background=bg(rel) if bg else None,
                            reader=self.reader, judge_model=self.judge_model,
                            tutor_model=self.judge_model or self.model if self.teach else None,
                            help_levels=st.help_levels)
@@ -391,6 +409,49 @@ class Watcher:
             self.retry_pending(rel, st, now)
         return result
 
+    def _is_open(self, rel) -> bool:
+        op = getattr(self.tablet, "open_page", None)
+        try:
+            return bool(op) and op() == (rel.split("/")[0], rel.split("/")[1].removesuffix(".rm"))
+        except Exception:
+            return False
+
+    def _pen_retry(self, rel, st, p, current) -> bool:
+        """Pending feedback through the pen, read back like a first delivery. True if anything landed."""
+        from .guards import GuardError, Stopped
+        from .penpath import stroke_sig
+        with tempfile.TemporaryDirectory() as tmp:
+            a = os.path.join(tmp, "before.rm")
+            Path(a).write_bytes(current)
+            before = pagemod.read_strokes(a)
+        try:
+            self.pen.deliver(p["strokes"], rel)
+        except Stopped:
+            raise
+        except GuardError as e:
+            self.log(f"  pending, pen refused: {e}")
+            return False
+        finally:
+            st.own_sigs |= {stroke_sig(x) for x in getattr(self.pen, "landed", [])}
+        after_bytes, states = current, {}
+        for _ in range(self.verify_tries):
+            time.sleep(self.verify_wait_s)
+            after_bytes = self.tablet.fetch(rel)
+            with tempfile.TemporaryDirectory() as tmp:
+                a = os.path.join(tmp, "after.rm")
+                Path(a).write_bytes(after_bytes)
+                after = pagemod.read_strokes(a)
+            states = verify.verify(p["strokes"], before, after)
+            if all(v == "confirmed" for v in states.values()):
+                break
+        st.own_sha = sha(after_bytes)
+        st.delivered |= {k for k, v in states.items() if v == "confirmed"}
+        missing = [s for s in p["strokes"] if states.get(s["action"]) == "missing"]
+        st.pending = ({**p, "strokes": missing, "base_sha": st.own_sha} if missing else None)
+        self.log(f"  {self.tablet.name(rel)}: pending feedback delivered on return: {states}")
+        self._save()
+        return any(v == "confirmed" for v in states.values())
+
     def retry_pending(self, rel, st, now):
         p = st.pending
         current = self.tablet.fetch(rel)
@@ -399,6 +460,11 @@ class Watcher:
             st.pending = None
             st.reviewed_sha = ""                          # look at the page again
             return
+        # back on the page: the pen path can deliver now (round 7: feedback for a page the student
+        # left before the pen pause was lost when they came back without writing)
+        if self.pen is not None and now >= self.pen_rest_until and self._is_open(rel):
+            if self._pen_retry(rel, st, p, current):
+                return
         # idle = no change on ANY page; a page the student only reads is quiet but not idle
         quiet = now - max(x.last_change for x in self.pages.values())
         if (self.allow_restart and quiet >= self.restart_quiet_s

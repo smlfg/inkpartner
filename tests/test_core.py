@@ -958,3 +958,14 @@ class HelpLadderInTheLoop(unittest.TestCase):
         sp = speech.MacSpeaker("off")
         sp("Rechne x^3 aus.")
         self.assertEqual(sp.log[-1][0], "refused")
+
+
+class LineClustering(unittest.TestCase):
+    def test_a_small_stroke_far_below_does_not_merge_two_lines(self):
+        import random
+        from inkpartner import sim, readers
+        rng = random.Random(5)
+        a = sim.handwrite("x^2-5x+6=0", (200, 220), 80, rng)
+        y = max(p[1] for s in a for p in s["points"]) + 90
+        b = sim.handwrite("wie geht das?", (200, y), 80, rng)
+        self.assertEqual(len(readers.cluster_lines(a + b)), 2)

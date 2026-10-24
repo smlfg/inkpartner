@@ -55,6 +55,8 @@ def validate(actions: list[Action], elements: list[Element], profile, *, deliver
         reason = None
         if el is None:
             reason = "unknown element"
+        elif el.kind == "printed":
+            reason = "printed exercise text is never marked"
         elif a.verdict not in VERDICT_COLOR:
             reason = f"unknown verdict {a.verdict!r}"
         elif a.mark not in MARKS_FOR[a.verdict] or a.mark not in profile.marks:

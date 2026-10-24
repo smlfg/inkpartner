@@ -12,7 +12,7 @@ import hashlib
 import json
 import re
 
-KINDS = ("line", "formula", "code", "text", "node", "edge", "arrow", "box", "table", "drawing")
+KINDS = ("line", "formula", "code", "text", "node", "edge", "arrow", "box", "table", "drawing", "printed")
 
 
 @dataclass

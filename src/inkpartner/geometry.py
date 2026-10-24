@@ -21,6 +21,10 @@ def snap(elements: list[Element], strokes: list[dict], grow: float = 0.6) -> lis
     student = [s for s in strokes if s.get("author", "user") == "user" and s["points"]]
     if not elements or not student:
         return elements
+    printed = [e for e in elements if e.kind == "printed"]       # no ink of its own: keeps its box
+    elements_all, elements = elements, [e for e in elements if e.kind != "printed"]
+    if not elements:
+        return elements_all
     owned: dict[str, list] = {e.id: [] for e in elements}
     for s in student:
         x0, y0, x1, y1 = _bbox(s)
@@ -42,4 +46,4 @@ def snap(elements: list[Element], strokes: list[dict], grow: float = 0.6) -> lis
         if boxes:
             e.bbox = [min(b[0] for b in boxes), min(b[1] for b in boxes),
                       max(b[2] for b in boxes), max(b[3] for b in boxes)]
-    return elements
+    return elements_all

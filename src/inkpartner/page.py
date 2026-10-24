@@ -54,17 +54,21 @@ def read_strokes(path: str) -> list[dict]:
 
 
 def render(strokes: list[dict], *, width: int = PAGE_W, height: int | None = None, scale: float = 0.5,
-           authors: tuple[str, ...] = ("user", "agent")) -> Image.Image:
+           authors: tuple[str, ...] = ("user", "agent"), background: Image.Image | None = None) -> Image.Image:
     """Draw the strokes on white paper. The frame follows the ink on both axes: on the device a page
     is longer when scrolled and wider when zoomed out (seen 2026-10-23: x from -454 to 2099 on a
     1620 px page). A frame cut to the paper format silently drops the left edge of the writing.
-    `img.info["frame"]` = [x0, y0, x1, y1] in page pixels, for mapping image boxes back to the page."""
+    `img.info["frame"]` = [x0, y0, x1, y1] in page pixels, for mapping image boxes back to the page.
+    `background` (the printed PDF page, page pixels 0..PAGE_W x 0..PAGE_H) goes under the ink."""
     xs = [p[0] for s in strokes for p in s["points"]]
     ys = [p[1] for s in strokes for p in s["points"]]
     x0 = min(0, int(min(xs, default=0)) - 30)
     x1 = max(width, int(max(xs, default=0)) + 30)
     y1 = max(height or PAGE_H, int(max(ys, default=0)) + 40)
     img = Image.new("RGB", (int((x1 - x0) * scale), int(y1 * scale)), "white")
+    if background is not None:
+        bg = background.convert("RGB").resize((int(PAGE_W * scale), int(PAGE_H * scale)))
+        img.paste(bg, (int(-x0 * scale), 0))
     img.info["frame"] = [x0, 0, x1, y1]
     d = ImageDraw.Draw(img)
     for s in strokes:

@@ -6,6 +6,8 @@ from Notion (black = student, green = right, red = wrong) true no matter what th
 """
 from __future__ import annotations
 
+import math
+import re
 from dataclasses import dataclass, field
 
 from . import layout, marks
@@ -97,6 +99,10 @@ def validate(actions: list[Action], elements: list[Element], profile, *, deliver
             reason = f"contradicts the deterministic check ({overrides[el.id]})"
         elif a.mark == "note" and not a.text.strip():
             reason = "empty note"
+        elif a.mark == "note" and a.verdict != "help" and not (
+                set(re.findall(r"\d+", a.text)) <= set(re.findall(r"\d+", el.text))):
+            # live test 24.10.: 'Auch hier: 5 + 2 ist nicht 8.' next to '5 + 2 = 9'
+            reason = "note quotes numbers that are not written there"
         elif a.mark == "note" and len(a.text) > (profile.help_max_chars if a.verdict == "help"
                                                    else profile.note_max_chars):
             reason = "note too long"
@@ -162,6 +168,8 @@ def draw(actions: list[Action], elements: list[Element], strokes_on_page: list[d
             lines = marks.wrap(a.text, 28)
             w = max(marks.text_size(line, h)[0] for line in lines)
             spot = layout.place((w, h * 1.5 * len(lines)), el.bbox, occ)
+            if spot is None:
+                continue
             ink = []
             for i, line in enumerate(lines):
                 ink += marks.text(line, (spot["rect"][0], spot["rect"][1] + i * h * 1.5), height=h, color=a.color)
@@ -173,7 +181,12 @@ def draw(actions: list[Action], elements: list[Element], strokes_on_page: list[d
                 c_note = ((r[0] + r[2]) / 2, (r[1] + r[3]) / 2)
                 start = (min(max(c_el[0], r[0]), r[2]), min(max(c_el[1], r[1] - 8), r[3] + 8))
                 end = (min(max(c_note[0], b[0] - 8), b[2] + 8), min(max(c_note[1], b[1] - 8), b[3] + 8))
-                ink += marks.arrow(start, end, color=a.color)
+                arrow = marks.arrow(start, end, color=a.color)
+                # live test 24.10.: an arrow from a far note ran through '5 + 2 = 9' - then no note
+                if any(not occ.free([p[0] - 1, p[1] - 1, p[0] + 1, p[1] + 1]) for s in arrow
+                       for p in s["points"] if math.dist(p[:2], end) > 40 and math.dist(p[:2], start) > 20):
+                    continue
+                ink += arrow
         else:
             ink = getattr(marks, a.mark)(el.bbox, color=a.color)
         for s in ink:

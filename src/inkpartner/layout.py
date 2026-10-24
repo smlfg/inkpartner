@@ -54,6 +54,6 @@ def place(size, target, occ: Occupancy) -> dict:
                 r = [x, y, x + w, y + h]
                 if occ.free(r):
                     return {"rect": r, "how": "free-space", "adjacent": False}
-    x = min(x1 + 60, occ.w - w - 10)
-    r = [x, y0, x + w, y0 + h]
-    return {"rect": r, "how": "overlap", "adjacent": True}
+    # no free spot: no note. Live test 24.10.: the old fallback wrote a note across the student's
+    # line 'print(ord(text))' - the circle carries the error, a note over the writing never.
+    return None

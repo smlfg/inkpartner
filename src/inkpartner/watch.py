@@ -318,6 +318,7 @@ class PageState:
     help_levels: dict = field(default_factory=dict)     # task -> how often help was given (tutor.py)
     verdicts: dict = field(default_factory=dict)        # action key -> [bbox, verdict] of green/red marks
     expected: list = field(default_factory=list)        # marks sent without read-back: agent ink once saved
+    own_next: list = field(default_factory=list)        # [first index, count]: the next strokes saved are the agent's
 
 
 class Watcher:
@@ -356,7 +357,8 @@ class Watcher:
                                             set(d["delivered"]), own_sigs=set(d.get("own_sigs", [])),
                                             help_levels=dict(d.get("help_levels", {})),
                                             verdicts=dict(d.get("verdicts", {})),
-                                            expected=list(d.get("expected", [])))
+                                            expected=list(d.get("expected", [])),
+                                            own_next=list(d.get("own_next", [])))
         except (OSError, ValueError, KeyError):
             pass
 
@@ -366,7 +368,7 @@ class Watcher:
                                                      "own_sha": p.own_sha, "delivered": sorted(p.delivered),
                                                      "own_sigs": sorted(p.own_sigs),
                                                      "help_levels": p.help_levels, "verdicts": p.verdicts,
-                                                     "expected": p.expected[-100:]}
+                                                     "expected": p.expected[-100:], "own_next": p.own_next}
                                                for rel, p in self.pages.items()}))
 
     # ------------------------------------------------------------------- loop
@@ -443,6 +445,13 @@ class Watcher:
             c = calibrate.load(rel)                     # the agent's own calibration L is agent ink
             if c and c[2] and {"points": c[2]} not in st.expected:
                 st.expected.append({"points": c[2]})
+            # marks sent without read-back are saved in the order they were drawn, after what was on the
+            # page then. Live test 24.10.: the notes landed ~60 px off the plan, the 10 px match below
+            # missed all 165 strokes and the next round read the agent's own notes as the student's.
+            for first, count in list(st.own_next):
+                if len(strokes) >= first + count:
+                    st.own_sigs |= {stroke_sig(x) for x in strokes[first:first + count]}
+                    st.own_next.remove([first, count])
             if st.expected:                             # marks sent without read-back, now saved
                 for x in strokes:
                     if x.get("author") == "user" and stroke_sig(x) not in st.own_sigs and \
@@ -451,6 +460,7 @@ class Watcher:
             if st.own_sigs:                             # the pen path's marks are not the student's writing
                 strokes = [dict(x, author="agent") if stroke_sig(x) in st.own_sigs else x for x in strokes]
             strokes = strokes + list(extra or [])       # what the pen wrote that the file has not caught up with
+            page = strokes
             strokes = focus(strokes)
             t0 = time.time()
             bg = getattr(self.tablet, "background", None)
@@ -459,7 +469,7 @@ class Watcher:
                            reader=self.reader, judge_model=self.judge_model,
                            tutor_model=self.judge_model or self.model if self.teach else None,
                            help_levels=st.help_levels,
-                           placed=[v for k, v in st.verdicts.items() if k in st.delivered])
+                           placed=[v for k, v in st.verdicts.items() if k in st.delivered], page=page)
             self.last_round = r
             by_id = {e.id: e for e in r.elements}
             for a in r.accepted:
@@ -489,6 +499,7 @@ class Watcher:
                         self.speak(words)
                         self.log(f"  spoken (level {r.tutor[k]['level']}): {words[:80]}...")
             t_del = time.time()
+            self._base_n = len(pagemod.read_strokes(src)) + len(extra or [])   # strokes before the agent's
             result = self.deliver(rel, st, src, data, h, r, now)
             self.log(f"  delivery: {result}")
             self.log(f"  timing: pause {self.settle_s:.0f}s + reading/judging {t_del - t0:.1f}s {r.timing} + "
@@ -520,11 +531,7 @@ class Watcher:
                 self.retry_pending(rel, st, now)
                 return {"path": "pen", "refused": True, "pending": True}
             if sent.get("status") == "sent_direct":
-                # measured viewport, no read-back wait (the app saves late). Counted as delivered so
-                # it is never sent twice; once saved, the marks are recognised as agent ink (expected).
-                st.delivered |= {s["action"] for s in r.strokes}
-                st.expected = (st.expected + [{"points": s["points"]} for s in r.strokes])[-300:]
-                self.pen_failures = 0
+                self._sent_direct(st, r.strokes, sent, getattr(self, "_base_n", None))
                 return {"path": "pen", **sent}
             before = pagemod.read_strokes(src)
             states, after_bytes = {}, data
@@ -563,6 +570,15 @@ class Watcher:
             self.retry_pending(rel, st, now)
         return result
 
+    def _sent_direct(self, st, strokes, sent, base_n):
+        """Measured viewport, no read-back wait (the app saves late). Counted as delivered so it is
+        never sent twice; once saved, the marks are recognised as agent ink (own_next, expected)."""
+        st.delivered |= {s["action"] for s in strokes}
+        st.expected = (st.expected + [{"points": s["points"]} for s in strokes])[-300:]
+        if base_n is not None:
+            st.own_next.append([base_n, sent["strokes"]])
+        self.pen_failures = 0
+
     def _is_open(self, rel) -> bool:
         op = getattr(self.tablet, "open_page", None)
         try:
@@ -579,7 +595,7 @@ class Watcher:
             Path(a).write_bytes(current)
             before = pagemod.read_strokes(a)
         try:
-            self.pen.deliver(p["strokes"], rel)
+            sent = self.pen.deliver(p["strokes"], rel)
         except Stopped:
             raise
         except GuardError as e:
@@ -587,6 +603,12 @@ class Watcher:
             return False
         finally:
             st.own_sigs |= {stroke_sig(x) for x in getattr(self.pen, "landed", [])}
+        if sent and sent.get("status") == "sent_direct":
+            # no read-back against the plan: a few px off reads as 'missing' and the note went again
+            self._sent_direct(st, p["strokes"], sent, len(before))
+            st.pending = None
+            self.log(f"  pending feedback sent: {sent}")
+            return True
         after_bytes, states = current, {}
         for _ in range(self.verify_tries):
             time.sleep(self.verify_wait_s)

@@ -25,7 +25,7 @@ class Round:
 def run(strokes: list[dict], *, model=None, subject: str | None = None, elements: list[Element] | None = None,
         proposals: list[tuple[plan.Action, str]] | None = None, delivered: set[str] = frozenset(),
         reader=None, judge_model=None, tutor_model=None, help_levels: dict | None = None,
-        background=None, placed: list | None = None) -> Round:
+        background=None, placed: list | None = None, page: list[dict] | None = None) -> Round:
     """`elements` / `proposals` can be given (tests, replays); otherwise the model provides them.
     `reader` (readers.get) replaces the default reading; `judge_model` judges instead of `model`.
     With `tutor_model` and `help_levels` (task -> how often help was given) a help request is answered
@@ -78,8 +78,11 @@ def run(strokes: list[dict], *, model=None, subject: str | None = None, elements
     t = time.time()
     taught = _teach(review.accepted, elements, subject, profile, tutor_model, help_levels)
     times["teach"] = round(time.time() - t, 1)
-    height = max([PAGE_H] + [int(p[1]) + 200 for s in strokes for p in s["points"]])
-    ink = plan.draw(review.accepted, elements, strokes, width=PAGE_W, height=height)
+    # the whole page decides where a note may go, not only the focused part the model read (live
+    # test 24.10.: a line half outside the focus window counted as free paper and got written over)
+    on_page = page if page is not None else strokes
+    height = max([PAGE_H] + [int(p[1]) + 200 for s in on_page for p in s["points"]])
+    ink = plan.draw(review.accepted, elements, on_page, width=PAGE_W, height=height)
     by_id = {e.id: e for e in elements}
     said = {a.key(by_id[a.element]): s for a, s in proposals
             if a in review.accepted and speech.speakable(s)}

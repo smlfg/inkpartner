@@ -94,7 +94,7 @@ class Rules(unittest.TestCase):
         self.assertEqual(plan.Action("a", "correct", "underline").color, "green")
 
     def test_limit_keeps_errors_first(self):
-        acts = [plan.Action("a", "correct", "check")] + [plan.Action("b", "wrong", "note", text=f"n{i}") for i in range(5)]
+        acts = [plan.Action("a", "correct", "check")] + [plan.Action("b", "wrong", "note", text=f"n{c}") for c in "abcde"]
         r = plan.validate(acts, self.els, self.math)
         self.assertEqual(len(r.accepted), self.math.max_actions)
         self.assertTrue(all(a.verdict == "wrong" for a in r.accepted))
@@ -115,11 +115,33 @@ class Layout(unittest.TestCase):
         spot = layout.place((200, 40), [100, 100, 400, 150], occ)
         self.assertEqual(spot["how"], "right")
 
-    def test_full_page_still_places_a_note(self):
+    def test_full_page_gets_no_note(self):
+        # live test 24.10.: the old 'overlap' fallback wrote a note across the student's line
         ink = [{"points": [[x, y, .5] for x in range(0, 1620, 10)]} for y in range(0, 2160, 10)]
         occ = layout.Occupancy(ink, 1620, 2160)
-        spot = layout.place((200, 40), [100, 100, 400, 150], occ)
-        self.assertEqual(spot["how"], "overlap")
+        self.assertIsNone(layout.place((200, 40), [100, 100, 400, 150], occ))
+        els = [Element("a", "line", [100, 100, 400, 150], "3 + 4 = 8", confidence=.97)]
+        acts = [plan.Action("a", "wrong", "note", text="Rechne nochmal"), plan.Action("a", "wrong", "circle")]
+        out = plan.draw(acts, els, ink, width=1620, height=2160)
+        self.assertEqual({s["action"].split(":")[-1] for s in out}, {"circle"})
+
+    def test_note_never_quotes_other_numbers(self):
+        els = [Element("a", "line", [100, 100, 400, 150], "5 + 2 = 9", confidence=.97)]
+        r = plan.validate([plan.Action("a", "wrong", "note", text="Auch hier: 5 + 2 ist nicht 8."),
+                           plan.Action("a", "wrong", "note", text="Rechne nochmal: 5 + 2 = ?")],
+                          els, profiles.get("code"))
+        self.assertEqual([a.text for a in r.accepted], ["Rechne nochmal: 5 + 2 = ?"])
+
+    def test_note_placed_against_the_whole_page_not_the_focus(self):
+        # a line of the student's left out of the model's focus window is still ink to avoid
+        els = [Element("a", "line", [100, 400, 400, 450], "3 + 4 = 8", confidence=.97)]
+        hidden = [{"points": [[x, y, .5] for x in range(480, 1500, 8)], "color": "black", "author": "user"}
+                  for y in range(390, 470, 8)]
+        r = review.run([], subject="code", elements=els, page=hidden,
+                       proposals=[(plan.Action("a", "wrong", "note", text="Rechne nochmal"), "")])
+        notes = [p for s in r.strokes if s["action"].endswith(":note") for p in s["points"]]
+        self.assertTrue(notes)
+        self.assertFalse(any(470 <= p[0] <= 1510 and 380 <= p[1] <= 480 for p in notes))
 
 
 class Verify(unittest.TestCase):

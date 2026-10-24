@@ -73,6 +73,25 @@ def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _cat_stderr(p: subprocess.Popen) -> str:
+    """What cat wrote after it closed the pen device. Empty if it said nothing."""
+    if p is None:
+        return ""
+    if p.stdin and not p.stdin.closed:
+        try:
+            p.stdin.close()
+        except OSError:
+            pass
+    try:
+        p.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        p.wait(timeout=5)
+    if not p.stderr or p.stderr.closed:
+        return ""
+    return p.stderr.read().decode(errors="replace").strip()
+
+
 class Tablet:
     """Everything that touches the tablet, over SSH. Reads are free; writes are two: pen events into
     /dev/input/<pen> (pen path) and one page file + restart (file path)."""
@@ -188,19 +207,32 @@ class Tablet:
         mon = self.monitor
         if mon:
             mon.injecting = True
+        p = None
         try:
             # at the pen's pace, one report every ~2 ms (a block at once: 'Timeout while waiting for
             # penpoint', nothing drawn - live test 24.10.)
+            # stderr stays a pipe: when cat exits early the write raises Broken pipe, and the
+            # reason (EINVAL on this device) is the only thing that says why.
             p = subprocess.Popen(["ssh", "-o", "BatchMode=yes", self.host,
                                   f"cat > /dev/input/{shlex.quote(self.device)}"],
-                                 stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                                 stdin=subprocess.PIPE, stderr=subprocess.PIPE)
             for rep in penstream.reports(penstream.build(screen_strokes)):
                 p.stdin.write(rep)
                 p.stdin.flush()
                 time.sleep(self.pace_s)
             p.stdin.close()
             p.wait(timeout=30)
+        except BrokenPipeError as exc:
+            reason = _cat_stderr(p)
+            raise RuntimeError(f"pen inject: cat closed the pipe: {reason or 'no message'}") from exc
         finally:
+            if p is not None and p.stdin and not p.stdin.closed:
+                try:
+                    p.stdin.close()
+                except OSError:
+                    pass
+            if p is not None and p.stderr and not p.stderr.closed:
+                p.stderr.close()
             if mon:
                 mon.injecting = False
 

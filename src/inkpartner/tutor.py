@@ -39,10 +39,12 @@ WORDS = ("Sprich Mathematik in Worten, nie als Zeichen: 'x hoch drei', 'a plus b
 LADDER = {
     1: ("Stufe 1 von 3. Gib NICHT die Lösung und NICHT den Rechenweg. Stelle eine Leitfrage, die ihn den "
         "nächsten Schritt selbst finden lässt, und nenne höchstens die Regel oder Formel, die er braucht. "
+        "Ist unklar, was genau gefragt ist, frage zuerst danach, statt eine Aufgabe zu erfinden. "
         "Ein bis zwei gesprochene Sätze, der letzte ist eine Frage."),
     2: ("Stufe 2 von 3: er hat schon einmal gefragt. Erkläre genau den einen Schritt, an dem er hängt, "
         "konkret an seiner Aufgabe, aber rechne die Aufgabe nicht zu Ende. Drei bis fünf gesprochene Sätze; "
-        "der letzte fordert ihn auf, diesen Schritt jetzt selbst aufzuschreiben."),
+        "der letzte fordert ihn auf, diesen Schritt jetzt selbst aufzuschreiben. Behaupte nichts über "
+        "seine Arbeit, was nicht auf dem Blatt steht."),
     3: ("Stufe 3 von 3: er hat zweimal gefragt. Erkläre den ganzen Lösungsweg verständlich in fünf bis "
         "zehn gesprochenen Sätzen. Danach eine NEUE, ähnliche Aufgabe in 'probe' (kurz, als Formel), die "
         "er ohne Hilfe lösen soll; der letzte Satz sagt ihm, dass er die neue Aufgabe allein rechnen soll."),

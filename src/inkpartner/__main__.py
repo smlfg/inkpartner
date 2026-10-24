@@ -51,6 +51,12 @@ def main(argv=None) -> int:
                                        "last line of the open page, probe first, read back")
     pt.add_argument("--host", default="remarkable")
     pt.add_argument("--wait", type=float, default=2.0, help="seconds between read-backs")
+    te = sub.add_parser("tutoreval", help="round 5: help prompts x levels x models, graded")
+    te.add_argument("--gen", action="append", required=True, help="generator model (repeatable)")
+    te.add_argument("--grader", default="ollama:gemma4:26b")
+    te.add_argument("--variant", action="append")
+    te.add_argument("--case", action="append")
+    te.add_argument("--out", default="sim-out-tutor")
     sm = sub.add_parser("sim", help="simulated student + simulated tablet + real agent; compare readers/models")
     sm.add_argument("configs", nargs="+", help="READER@JUDGE, e.g. vlm:ollama:qwen3.6:35b-a3b@ollama:qwen3.6:35b-a3b, "
                                               "lines:ollama:gemma4:26b@..., ocr:apple@ollama-text:gpt-oss:20b")
@@ -68,6 +74,12 @@ def main(argv=None) -> int:
     if a.cmd == "pentest":
         from . import watch
         print(json.dumps(watch.pentest(a.host, wait_s=a.wait), ensure_ascii=False, indent=1))
+        return 0
+
+    if a.cmd == "tutoreval":
+        from . import tutoreval
+        res = tutoreval.run(a.gen, a.grader, a.variant, names=a.case, log=lambda *x: print(*x, flush=True))
+        print(json.dumps(tutoreval.report(res, os.path.join(a.out, "REPORT.md"), a.grader), ensure_ascii=False, indent=1))
         return 0
 
     if a.cmd == "sim":

@@ -898,3 +898,36 @@ class PenPathRound4(unittest.TestCase):
 def sim_handwrite(*a):
     from inkpartner import sim
     return sim.handwrite(*a)
+
+
+class TutorLadder(unittest.TestCase):
+    def test_level_one_is_a_question_without_the_result(self):
+        from inkpartner import tutor
+        out = {"speech": ["Welche binomische Formel passt zu einer Summe hoch drei?"], "note": "(a+b)^3 nutzen",
+               "probe": "", "level": 1}
+        c = tutor.score(out, level=1, spoilers=("27x^3",))
+        self.assertTrue(c["sprechbar"] and c["auftrag"] and c["kein_ergebnis"], c)
+
+    def test_a_spoken_formula_and_a_given_result_are_caught(self):
+        from inkpartner import tutor
+        out = {"speech": ["Das Ergebnis ist 27x^3 + 108x^2y."], "note": "", "probe": "", "level": 1}
+        c = tutor.score(out, level=1, spoilers=("27x^3",))
+        self.assertFalse(c["sprechbar"])
+        self.assertFalse(c["kein_ergebnis"])
+
+    def test_level_three_needs_a_new_task(self):
+        from inkpartner import tutor
+        out = {"speech": ["Satz eins und du.", "Zwei.", "Drei.", "Vier.", "Jetzt rechnest du die neue Aufgabe allein."],
+               "note": "", "probe": "", "level": 3}
+        self.assertFalse(tutor.score(out, level=3)["neue_aufgabe"])
+
+    def test_explain_passes_the_level_into_the_prompt(self):
+        from inkpartner import tutor
+        seen = {}
+
+        class M:
+            def json(self, images, prompt, schema):
+                seen["p"] = prompt
+                return {"speech": ["Was ist der erste Schritt?"], "note": "", "probe": ""}
+        tutor.explain(M(), "(a+b)^3 = ?", level=2)
+        self.assertIn("Stufe 2 von 3", seen["p"])

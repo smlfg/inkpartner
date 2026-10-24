@@ -9,7 +9,7 @@ t.guard.before_pen(target_doc=op[0], target_page=op[1], open_page=op, pen_idle_s
 y = float(sys.argv[1]) if len(sys.argv) > 1 else 1900.0
 plan = [{"points": [[300 + 6 * i, y + (i % 2)] for i in range(50)], "action": "test"}]
 start = t.ssh("date +%s").decode().strip()
-t0 = time.time(); t.ssh("cat > /dev/input/event2", data=penstream.build([{"points": penstream.densify(s["points"])} for s in plan]), timeout=30); print("sent in", round(time.time() - t0, 2), "s", flush=True)
+t0 = time.time(); t.ssh("dd bs=24 iflag=fullblock of=/dev/input/event2 2>/dev/null", data=penstream.build([{"points": penstream.densify(s["points"])} for s in plan]), timeout=30); print("sent in", round(time.time() - t0, 2), "s", flush=True)
 for k in range(40):
     time.sleep(3)
     log = t.ssh(f"journalctl -u xochitl --since @{start} --no-pager -o cat | grep -E 'penpoint|Scene written' | tail -n 5").decode()

@@ -182,8 +182,11 @@ class Tablet:
             return pagemod.read_strokes(p)
 
     def send(self, screen_strokes: list[dict]):
-        """Pen events, screen pixels. `cat` reports EINVAL on this device even when every event
-        arrives (algebra-agent, 20.10.): the exit code says nothing - only reading back does."""
+        """Pen events, screen pixels. Through `dd bs=24 iflag=fullblock`, not `cat`: ssh hands the
+        stream on in arbitrary pieces, cat writes a piece that is not whole 24-byte events, evdev
+        answers EINVAL and cat quits (live test 24.10.: 'R' of a note, then 'Broken pipe'; with
+        empty sync events cat died after 126 of 1500 reports, dd delivered all). Reading back
+        stays the proof that it landed."""
         from . import penstream
         mon = self.monitor
         if mon:
@@ -192,7 +195,7 @@ class Tablet:
             # at the pen's pace, one report every ~2 ms (a block at once: 'Timeout while waiting for
             # penpoint', nothing drawn - live test 24.10.)
             p = subprocess.Popen(["ssh", "-o", "BatchMode=yes", self.host,
-                                  f"cat > /dev/input/{shlex.quote(self.device)}"],
+                                  f"dd bs=24 iflag=fullblock of=/dev/input/{shlex.quote(self.device)} 2>/dev/null"],
                                  stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
             for rep in penstream.reports(penstream.build(screen_strokes)):
                 p.stdin.write(rep)

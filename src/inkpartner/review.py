@@ -19,6 +19,7 @@ class Round:
     speech: dict[str, str] = field(default_factory=dict)   # action key -> sentence (only speakable ones)
     checked: dict[str, str] = field(default_factory=dict)
     tutor: dict[str, dict] = field(default_factory=dict)   # action key -> the help ladder's answer
+    timing: dict[str, float] = field(default_factory=dict)  # seconds per stage: read, judge, teach
 
 
 def run(strokes: list[dict], *, model=None, subject: str | None = None, elements: list[Element] | None = None,
@@ -29,7 +30,9 @@ def run(strokes: list[dict], *, model=None, subject: str | None = None, elements
     `reader` (readers.get) replaces the default reading; `judge_model` judges instead of `model`.
     With `tutor_model` and `help_levels` (task -> how often help was given) a help request is answered
     by the help ladder (tutor.py): a level-aware note and spoken sentences."""
+    import time
     from . import agent
+    times, t = {}, time.time()
     if elements is None:
         from .geometry import snap
         if reader:      # readers without a background parameter keep working on plain pages
@@ -38,6 +41,8 @@ def run(strokes: list[dict], *, model=None, subject: str | None = None, elements
             guessed, elements = agent.read(model, strokes, background)
         elements = snap(elements, strokes)           # marks land on the real ink, not the model's guess
         subject = subject or guessed
+    times["read"] = round(time.time() - t, 1)
+    t = time.time()
     subject = subject or "math"
     profile = profiles.get(subject)
     checked = mathcheck.check_steps(elements) if profile.deterministic == "sympy" else {}
@@ -66,7 +71,10 @@ def run(strokes: list[dict], *, model=None, subject: str | None = None, elements
                   for e in elements if not e.legible and e.id not in acted and profile.marks >= {"wavy"}]
     review = plan.validate([a for a, _ in proposals], elements, profile, delivered=delivered, overrides=checked,
                            placed=placed)
+    times["judge"] = round(time.time() - t, 1)
+    t = time.time()
     taught = _teach(review.accepted, elements, subject, profile, tutor_model, help_levels)
+    times["teach"] = round(time.time() - t, 1)
     height = max([PAGE_H] + [int(p[1]) + 200 for s in strokes for p in s["points"]])
     ink = plan.draw(review.accepted, elements, strokes, width=PAGE_W, height=height)
     by_id = {e.id: e for e in elements}
@@ -74,7 +82,7 @@ def run(strokes: list[dict], *, model=None, subject: str | None = None, elements
             if a in review.accepted and speech.speakable(s)}
     for k, out in taught.items():
         said[k] = " ".join(tutor.say_ok(out["speech"]))   # the ladder's sentences replace the one-liner
-    return Round(subject, elements, review.accepted, review.rejected, ink, said, checked, taught)
+    return Round(subject, elements, review.accepted, review.rejected, ink, said, checked, taught, times)
 
 
 SUBJECT_DE = {"math": "Mathematik", "code": "Programmieren", "diagram": "Informatik (Diagramme, Graphen, "

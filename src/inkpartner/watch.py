@@ -391,7 +391,7 @@ class Watcher:
             t_del = time.time()
             result = self.deliver(rel, st, src, data, h, r, now)
             self.log(f"  delivery: {result}")
-            self.log(f"  timing: pause {self.settle_s:.0f}s + reading/judging {t_del - t0:.1f}s + "
+            self.log(f"  timing: pause {self.settle_s:.0f}s + reading/judging {t_del - t0:.1f}s {r.timing} + "
                      f"writing {time.time() - t_del:.1f}s")
             self._save()
             return r

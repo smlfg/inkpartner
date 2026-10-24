@@ -26,6 +26,9 @@ class MathCheck(unittest.TestCase):
         self.assertEqual(mathcheck.check_chains(els), {"m": "wrong"})
         r = review.run([], subject="code", elements=els, proposals=[])
         self.assertEqual([(a.element, a.verdict, a.mark) for a in r.accepted], [("m", "wrong", "circle")])
+        note = [(plan.Action("m", "wrong", "note", text="3 + 4 ist nicht 8."), "")]
+        r = review.run([], subject="code", elements=els, proposals=note)   # the model's note keeps the circle
+        self.assertEqual(sorted(a.mark for a in r.accepted), ["circle", "note"])
 
     def test_distributive_error_and_lines_built_on_it(self):
         els = [el("a", "3(x+2)=15", 100), el("b", "3x+2=15", 200), el("c", "3x=13", 300), el("d", "x = 13/3", 400)]

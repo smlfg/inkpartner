@@ -54,7 +54,9 @@ def run(strokes: list[dict], *, model=None, subject: str | None = None, elements
     # "bis hierhin fehlerfrei" should not depend on the model's mood.
     # The same for a step the checker proved wrong: the red circle does not depend on the model either.
     acted = {a.element for a, _ in proposals}
-    marked_wrong = {a.element for a, _ in proposals if a.verdict == "wrong"}
+    # a note alone does not replace the circle (live test 24.10.: the model wrote "3 + 4 ist nicht 8"
+    # instead of circling the 8 - the error is shown where it is, the note may come along)
+    circled = {a.element for a, _ in proposals if a.verdict == "wrong" and a.mark == "circle"}
     proposals = list(proposals) + [(plan.Action(eid, "correct", "check", why="sympy"), "")
                                    for eid, v in checked.items() if v == "correct" and eid not in acted]
     # Only the FIRST wrong step of an exercise gets the automatic circle: lines built on it are wrong
@@ -65,7 +67,7 @@ def run(strokes: list[dict], *, model=None, subject: str | None = None, elements
         if v == "wrong":
             first_wrong.setdefault(by_id[eid].group, eid)
     proposals += [(plan.Action(eid, "wrong", "circle", why="sympy"), "")
-                  for eid in first_wrong.values() if eid not in marked_wrong]
+                  for eid in first_wrong.values() if eid not in circled]
     # An element nobody can read gets the wavy line - the reading decided that, not the judge's mood.
     acted = {a.element for a, _ in proposals}
     proposals += [(plan.Action(e.id, "unreadable", "wavy", why="illegible"), "")

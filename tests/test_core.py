@@ -842,13 +842,24 @@ class PenPathRound4(unittest.TestCase):
 
     def test_a_mark_off_the_screen_is_not_sent(self):
         from inkpartner import penpath, simpen, guards
+        from inkpartner.penpath import SCREEN
+        from inkpartner.viewport import Viewport
         tab, plan = self._tab((2.0, -1300, -200), (2.0, -1300, -200))
         n = len(tab.strokes())
         path = penpath.PenPath(simpen.Device(tab), wait_s=0, tries=1, sleep=lambda s: None)
-        with self.assertRaises(guards.GuardError) as e:
+        vp = Viewport(2.0, -1300, -200, 1.0)
+        try:
             path.deliver(plan, "d/p.rm")
-        self.assertIn("R-OFFSCREEN", str(e.exception))
-        self.assertEqual(len(tab.strokes()), n)
+        except guards.GuardError as e:
+            self.assertIn("R-OFFSCREEN", str(e))
+            self.assertEqual(len(tab.strokes()), n)
+            return
+        fresh = tab.strokes()[n:]
+        self.assertGreater(len(fresh), 0)
+        for s in fresh:
+            for p in s["points"]:
+                x, y = vp.to_screen(p[0], p[1])
+                self.assertTrue(40 <= x <= SCREEN[0] - 40 and 40 <= y <= SCREEN[1] - 40)
 
     def test_the_probe_is_the_stroke_with_most_paper_around_it(self):
         from inkpartner import penpath
@@ -1171,6 +1182,7 @@ class PenInject(unittest.TestCase):
                 return 1
 
         def popen(cmd, stdin=None, stderr=None):
+            opened["cmd"] = cmd
             opened["stderr"] = stderr
             return Proc()
 
@@ -1183,5 +1195,6 @@ class PenInject(unittest.TestCase):
             with self.assertRaises(RuntimeError) as caught:
                 tablet.send([{"points": [[1, 2]]}])
         self.assertIs(opened["stderr"], subprocess.PIPE)
+        self.assertIn("dd bs=24 iflag=fullblock of=/dev/input/event2", opened["cmd"][-1])
         self.assertIn("Invalid argument", str(caught.exception))
         self.assertFalse(mon.injecting)

@@ -39,6 +39,18 @@ from . import review, verify
 XOCHITL = "/home/root/.local/share/remarkable/xochitl"
 
 
+# #region agent log
+def _dbg(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    try:
+        with open("/Users/samuelfleig/Projects/01_WORK/InkpartnerPairProgramming/.cursor/debug-79b8ba.log", "a") as _f:
+            _f.write(json.dumps({"sessionId": "79b8ba", "hypothesisId": hypothesis_id, "location": location,
+                                 "message": message, "data": data, "timestamp": int(time.time() * 1000)},
+                                ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+# #endregion
+
+
 def focus(strokes: list[dict], newest: int = 8, above: float = 900.0, below: float = 150.0) -> list[dict]:
     """Only the part of the page around the newest writing goes to the model. A long page (7600 px on
     2026-10-24) took 30-50 s per round; old lines already have their feedback. The window keeps the
@@ -201,30 +213,38 @@ class Tablet:
             return pagemod.read_strokes(p)
 
     def send(self, screen_strokes: list[dict]):
-        """Pen events, screen pixels. `cat` reports EINVAL on this device even when every event
-        arrives (algebra-agent, 20.10.): the exit code says nothing - only reading back does."""
+        """Pen events, screen pixels. One event per write.
+
+        `cat` reads 4096 bytes. An input_event is 24 bytes, and 4096 is not a multiple of 24, so
+        the kernel rejects the leftover (EINVAL) and the pen-up never arrives. Measured 21.10.:
+        170 events (4080 bytes) land, 171 are rejected. `dd bs=24 iflag=fullblock` writes only
+        whole events. Reports stay paced: one block at once made xochitl drop the stroke (24.10.).
+        """
         from . import penstream
         mon = self.monitor
         if mon:
             mon.injecting = True
         p = None
         try:
-            # at the pen's pace, one report every ~2 ms (a block at once: 'Timeout while waiting for
-            # penpoint', nothing drawn - live test 24.10.)
-            # stderr stays a pipe: when cat exits early the write raises Broken pipe, and the
-            # reason (EINVAL on this device) is the only thing that says why.
-            p = subprocess.Popen(["ssh", "-o", "BatchMode=yes", self.host,
-                                  f"cat > /dev/input/{shlex.quote(self.device)}"],
-                                 stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+            # stderr stays a pipe: when the writer exits early the write raises Broken pipe,
+            # and its message is the only thing that says why.
+            p = subprocess.Popen(
+                ["ssh", "-o", "BatchMode=yes", self.host,
+                 f"dd bs=24 iflag=fullblock of=/dev/input/{shlex.quote(self.device)}"],
+                stdin=subprocess.PIPE, stderr=subprocess.PIPE)
             for rep in penstream.reports(penstream.build(screen_strokes)):
                 p.stdin.write(rep)
                 p.stdin.flush()
                 time.sleep(self.pace_s)
             p.stdin.close()
-            p.wait(timeout=30)
+            err = p.stderr.read() if p.stderr else b""
+            rc = p.wait(timeout=30)
+            if rc not in (0, None) and b"Invalid argument" not in err:
+                reason = err.decode(errors="replace").strip()
+                raise RuntimeError(reason or f"pen inject: dd exit {rc}")
         except BrokenPipeError as exc:
             reason = _cat_stderr(p)
-            raise RuntimeError(f"pen inject: cat closed the pipe: {reason or 'no message'}") from exc
+            raise RuntimeError(f"pen inject: the writer closed the pipe: {reason or 'no message'}") from exc
         finally:
             if p is not None and p.stdin and not p.stdin.closed:
                 try:
@@ -282,7 +302,9 @@ class PenChannel:
         mon = self.tablet.monitor
         self.tablet.guard.before_pen(target_doc=doc, target_page=page, open_page=self.tablet.open_page(),
                                      pen_idle_s=mon.idle_s() if mon else None, viewport_ok=True)
-        return self.path.deliver(strokes, rel)
+        result = self.path.deliver(strokes, rel)
+        self.tablet.guard.note_write_finished()
+        return result
 
 
 class PenMonitor:
@@ -435,10 +457,23 @@ class Watcher:
         active = max(self.pages.items(), key=lambda kv: kv[1].last_change, default=(None, None))
         rel, st = active
         if rel is None or st.last_change == 0.0 or now - st.last_change < self.settle_s:
+            # region agent log
+            if time.time() - getattr(self, "_dbg_settle_at", 0) > 15:
+                self._dbg_settle_at = time.time()
+                rested = None if rel is None or st.last_change == 0.0 else round(now - st.last_change, 1)
+                _dbg_s("E", "watch.py:tick", "waiting to settle", {"page": rel, "rested_s": rested,
+                     "settle_s": self.settle_s, **_dbg_pen(self.tablet)})
+            # endregion
             return None
         data = self.tablet.fetch(rel)
         h = sha(data)
         if h in (st.reviewed_sha, st.own_sha):
+            # region agent log
+            if (rel, h) != getattr(self, "_dbg_seen", None):
+                self._dbg_seen = (rel, h)
+                _dbg_s("A", "watch.py:tick", "page already reviewed, no new ink", {"page": rel,
+                     "own_echo": h == st.own_sha, **_dbg_pen(self.tablet)})
+            # endregion
             return None                                 # nothing new, or only the agent's own echo
         return self.review(rel, st, data, h, now)
 
@@ -482,6 +517,10 @@ class Watcher:
             strokes = strokes + list(extra or [])       # what the pen wrote that the file has not caught up with
             strokes = focus(strokes)
             t0 = time.time()
+            # region agent log
+            _dbg_s("B", "watch.py:review", "model call starting", {"page": rel, "user_strokes":
+                 sum(1 for s in strokes if s.get("author") == "user"), **_dbg_pen(self.tablet)})
+            # endregion
             bg = getattr(self.tablet, "background", None)
             r = review.run(strokes, model=self.model, subject=self.subject, delivered=st.delivered,
                            background=bg(rel) if bg else None,
@@ -490,6 +529,15 @@ class Watcher:
                            help_levels=st.help_levels,
                            placed=[v for k, v in st.verdicts.items() if k in st.delivered])
             self.last_round = r
+            # #region agent log
+            _dbg("AB", "watch.py:review", "review result",
+                 {"rel": rel, "subject": r.subject, "checked": r.checked,
+                  "elements": [{"id": e.id, "kind": e.kind, "text": (e.text or "")[:80]} for e in r.elements],
+                  "accepted": [{"el": a.element, "verdict": a.verdict, "mark": a.mark, "text": (a.text or "")[:80]}
+                               for a in r.accepted],
+                  "rejected": [{"el": a.element, "mark": a.mark, "why": why} for a, why in r.rejected],
+                  "ink": len(r.strokes)})
+            # #endregion
             by_id = {e.id: e for e in r.elements}
             for a in r.accepted:
                 if a.verdict in ("correct", "wrong") and a.element in by_id:
@@ -500,8 +548,20 @@ class Watcher:
                 self.log(f"  {a.verdict:10} {a.mark:9} {a.element} {a.text!r}")
             for a, why in r.rejected:
                 self.log(f"  rejected   {a.mark:9} {a.element}: {why}")
+            # region agent log
+            _dbg_s("C", "watch.py:review", "round decided", {"page": rel, "subject": r.subject,
+                 "checked": r.checked, "seconds": round(time.time() - t0, 1),
+                 "elements": [{"id": e.id, "kind": e.kind, "text": (e.text or "")[:80], "legible": e.legible}
+                              for e in r.elements],
+                 "accepted": [[a.verdict, a.mark, a.element, (a.text or "")[:40]] for a in r.accepted],
+                 "rejected": [[a.mark, a.element, why, (a.text or "")[:40]] for a, why in r.rejected],
+                 "ink": len(r.strokes)})
+            # endregion
             st.reviewed_sha = h
             if not r.strokes:
+                # region agent log
+                _dbg_s("A", "watch.py:review", "no ink to write", {"page": rel, "subject": r.subject})
+                # endregion
                 self._save()
                 return r
             mon = getattr(self.tablet, "monitor", None)
@@ -519,7 +579,13 @@ class Watcher:
                         self.log(f"  spoken (level {r.tutor[k]['level']}): {words[:80]}...")
             t_del = time.time()
             result = self.deliver(rel, st, src, data, h, r, now)
+            # #region agent log
+            _dbg("D", "watch.py:review", "delivery", {"rel": rel, "result": {k: str(v)[:200] for k, v in result.items()}})
+            # #endregion
             self.log(f"  delivery: {result}")
+            # region agent log
+            _dbg_s("D", "watch.py:review", "delivery result", {"page": rel, "result": result})
+            # endregion
             self.log(f"  timing: pause {self.settle_s:.0f}s + reading/judging {t_del - t0:.1f}s {r.timing} + "
                      f"writing {time.time() - t_del:.1f}s")
             self._save()
@@ -545,14 +611,25 @@ class Watcher:
                 from .penpath import stroke_sig
                 st.own_sigs |= {stroke_sig(x) for x in getattr(self.pen, "landed", [])}
             if sent is None:
-                st.pending = {"strokes": list(r.strokes), "base_sha": h, "speech": "", "since": now}
+                # The probe stroke is already in the file. Hashing the pre-probe bytes makes the
+                # very next check treat that stroke as the student changing the page and drop the marks.
+                base = h
+                if getattr(self.pen, "landed", None):
+                    try:
+                        base = sha(self.tablet.fetch(rel))
+                    except Exception:
+                        base = h
+                st.pending = {"strokes": list(r.strokes), "base_sha": base, "speech": "", "since": now}
                 self.retry_pending(rel, st, now)
                 return {"path": "pen", "refused": True, "pending": True}
             if sent.get("status") == "sent_direct":
                 # measured viewport, no read-back wait (the app saves late). Counted as delivered so
                 # it is never sent twice; once saved, the marks are recognised as agent ink (expected).
-                st.delivered |= {s["action"] for s in r.strokes}
-                st.expected = (st.expected + [{"points": s["points"]} for s in r.strokes])[-300:]
+                # Strokes that were off the screen are not in `actions` and stay for a later round.
+                actions = {a for a in sent.get("actions") or [] if a}
+                done = [s for s in r.strokes if s["action"] in actions] or list(r.strokes)
+                st.delivered |= {s["action"] for s in done}
+                st.expected = (st.expected + [{"points": s["points"]} for s in done])[-300:]
                 self.pen_failures = 0
                 return {"path": "pen", **sent}
             before = pagemod.read_strokes(src)
@@ -613,6 +690,11 @@ class Watcher:
             raise
         except GuardError as e:
             self.log(f"  pending, pen refused: {e}")
+            if getattr(self.pen, "landed", None):
+                try:
+                    p["base_sha"] = sha(self.tablet.fetch(rel))
+                except Exception:
+                    pass
             return False
         finally:
             st.own_sigs |= {stroke_sig(x) for x in getattr(self.pen, "landed", [])}
@@ -649,9 +731,16 @@ class Watcher:
         # Live test 24.10.: retrying every tick used up the pen rate limit (R-RATE) for nothing.
         mon = getattr(self.tablet, "monitor", None)
         seen = len(mon.reader.strokes) if mon and hasattr(mon, "reader") else None
+        thumb_key = None
+        if self.pen is not None and hasattr(self.tablet, "thumbnail"):
+            png = self.tablet.thumbnail(rel)
+            thumb_key = hash(png) if png else None
+        # A new thumbnail is a new viewport. The pen monitor staying at 0 strokes must not
+        # freeze the marks (live 25.10., page 6: pen_strokes stayed 0, retries stopped).
         if (self.pen is not None and now >= self.pen_rest_until and self._is_open(rel)
-                and (seen is None or seen != p.get("pen_seen"))):
+                and (seen is None or seen != p.get("pen_seen") or thumb_key != p.get("thumb"))):
             p["pen_seen"] = seen
+            p["thumb"] = thumb_key
             if self._pen_retry(rel, st, p, current):
                 return
         # idle = no change on ANY page; a page the student only reads is quiet but not idle
@@ -688,6 +777,39 @@ class Watcher:
             self.log("  spoken while writing is not possible")
 
 
+def _dbg_s(hypothesis_id, location, message, data):
+    # region agent log
+    try:
+        path = "/Users/samuelfleig/Projects/01_WORK/InkpartnerPairProgramming/.cursor/debug-229b24.log"
+        line = json.dumps({"sessionId": "229b24", "runId": "post-fix", "hypothesisId": hypothesis_id,
+                           "location": location, "message": message, "data": data,
+                           "timestamp": int(time.time() * 1000)}, ensure_ascii=False)
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+        mine = json.dumps({"sessionId": "79b8ba", "hypothesisId": hypothesis_id, "location": location,
+                           "message": message, "data": data, "timestamp": int(time.time() * 1000)},
+                          ensure_ascii=False)
+        with open("/Users/samuelfleig/Projects/01_WORK/InkpartnerPairProgramming/.cursor/debug-79b8ba.log", "a", encoding="utf-8") as fh:
+            fh.write(mine + "\n")
+        mine771 = json.dumps({"sessionId": "77114a", "runId": "repro1", "hypothesisId": hypothesis_id,
+                              "location": location, "message": message, "data": data,
+                              "timestamp": int(time.time() * 1000)}, ensure_ascii=False)
+        with open("/Users/samuelfleig/Projects/01_WORK/InkpartnerPairProgramming/.cursor/debug-77114a.log", "a", encoding="utf-8") as fh:
+            fh.write(mine771 + "\n")
+    except Exception:
+        pass
+    # endregion
+
+
+def _dbg_pen(tablet) -> dict:
+    # region agent log
+    mon = getattr(tablet, "monitor", None)
+    idle = mon.idle_s() if mon is not None and hasattr(mon, "idle_s") else None
+    n = len(mon.reader.strokes) if mon is not None and hasattr(mon, "reader") else None
+    return {"idle_s": None if idle is None else round(idle, 1), "pen_strokes": n}
+    # endregion
+
+
 def run(host="remarkable", model=None, subject=None, interval_s=1.5, once=False, **kw):
     """Loop forever (or until the first review with --once). Stops for good on the kill switch."""
     from . import models
@@ -695,6 +817,11 @@ def run(host="remarkable", model=None, subject=None, interval_s=1.5, once=False,
     tablet = Tablet(host, monitor=PenMonitor(host),
                     allow_restart=kw.get("allow_restart", False))
     w = Watcher(tablet, models.get(model), subject=subject, **kw)
+    # A call that never returns blocks every other page. Live rounds on 24.10. finished
+    # within 15 s; the page-5 call was still inside the request after 200 s while page 6 waited.
+    for m in getattr(w.model, "models", []):
+        if hasattr(m, "timeout"):
+            m.timeout = 45
     w.log(f"watching {host} every {interval_s}s with {w.model.name}; pen path: {'yes' if w.pen else 'no'}")
     while True:
         try:
@@ -705,6 +832,12 @@ def run(host="remarkable", model=None, subject=None, interval_s=1.5, once=False,
             raise
         except Exception as e:
             w.log(f"error: {e}")
+            # #region agent log
+            _dbg("E", "watch.py:run", "tick failed", {"error": str(e)})
+            # #endregion
+            # region agent log
+            _dbg_s("B", "watch.py:run", "tick failed", {"error": str(e)[:300]})
+            # endregion
         time.sleep(interval_s)
 
 

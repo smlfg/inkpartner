@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass, field
 
 from . import mathcheck, plan, profiles, speech, tutor
+from .draw import draw
 from .elements import Element
 from .page import PAGE_W, PAGE_H
 
@@ -76,7 +77,7 @@ def run(strokes: list[dict], *, model=None, subject: str | None = None, elements
     taught = _teach(review.accepted, elements, subject, profile, tutor_model, help_levels)
     times["teach"] = round(time.time() - t, 1)
     height = max([PAGE_H] + [int(p[1]) + 200 for s in strokes for p in s["points"]])
-    ink = plan.draw(review.accepted, elements, strokes, width=PAGE_W, height=height)
+    ink = draw(review.accepted, elements, strokes, width=PAGE_W, height=height)
     by_id = {e.id: e for e in elements}
     said = {a.key(by_id[a.element]): s for a, s in proposals
             if a in review.accepted and speech.speakable(s)}

@@ -43,6 +43,9 @@ def main(argv=None) -> int:
     w.add_argument("--restart-quiet", type=float, default=1800.0,
                    help="seconds without a change on any page before a restart may happen")
     w.add_argument("--no-pen", action="store_true", help="do not use the V-Pen path")
+    w.add_argument("--speak", choices=["play", "file", "off"], default="play",
+                   help="help explanations aloud on the Mac (play; never while muted), as audio files, or off")
+    w.add_argument("--no-teach", action="store_true", help="no help ladder: the judge's one-line note only")
     w.add_argument("--once", action="store_true", help="stop after the first review")
     ps = sub.add_parser("pensim", help="round 4: pen path through a simulated zoomed/scrolled screen, no model")
     ps.add_argument("--out", default="sim-out-pen")
@@ -94,9 +97,10 @@ def main(argv=None) -> int:
         return 0
 
     if a.cmd == "watch":
-        from . import watch
+        from . import speech, watch
         watch.run(a.host, a.model, a.subject, a.interval, a.once, settle_s=a.settle,
-                  allow_restart=a.allow_restart, restart_quiet_s=a.restart_quiet, pen=not a.no_pen)
+                  allow_restart=a.allow_restart, restart_quiet_s=a.restart_quiet, pen=not a.no_pen,
+                  speak=speech.MacSpeaker(a.speak), speech_allowed=a.speak != "off", teach=not a.no_teach)
         return 0
 
     if a.cmd == "demo":

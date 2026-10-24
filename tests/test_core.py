@@ -931,3 +931,30 @@ class TutorLadder(unittest.TestCase):
                 return {"speech": ["Was ist der erste Schritt?"], "note": "", "probe": ""}
         tutor.explain(M(), "(a+b)^3 = ?", level=2)
         self.assertIn("Stufe 2 von 3", seen["p"])
+
+
+class HelpLadderInTheLoop(unittest.TestCase):
+    def test_asking_twice_climbs_the_ladder_and_produces_speech(self):
+        from inkpartner import review
+        from inkpartner.elements import Element
+        levels, prompts = {}, []
+
+        class Tutor:
+            def json(self, images, prompt, schema):
+                prompts.append(prompt)
+                return {"speech": ["Welche Formel kennst du für eine Summe hoch drei?"],
+                        "note": "binomische Formel hoch 3", "probe": "(2a+b)^3"}
+        el = Element("e0", "formula", [100, 100, 600, 180], "(3x+4y)^3 = ?", confidence=0.95)
+        prop = [(review.plan.Action("e0", "help", "note", text="Binom"), "")]
+        for want in (1, 2, 3):
+            r = review.run([], elements=[el], proposals=list(prop), subject="math", tutor_model=Tutor(),
+                           help_levels=levels)
+            self.assertIn(f"Stufe {want} von 3", prompts[-1])
+        self.assertTrue(any("Summe hoch drei" in v for v in r.speech.values()))
+        self.assertIn("Neu:", r.accepted[0].text)          # level 3 sets a new task on the page
+
+    def test_the_speaker_refuses_formulas_and_stays_off(self):
+        from inkpartner import speech
+        sp = speech.MacSpeaker("off")
+        sp("Rechne x^3 aus.")
+        self.assertEqual(sp.log[-1][0], "refused")

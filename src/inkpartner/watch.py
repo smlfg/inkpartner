@@ -209,13 +209,14 @@ class PageState:
     delivered: set[str] = field(default_factory=set)
     pending: dict | None = None                         # feedback that could not be written yet
     own_sigs: set[str] = field(default_factory=set)     # pen-path strokes: agent ink in the student's layer
+    help_levels: dict = field(default_factory=dict)     # task -> how often help was given (tutor.py)
 
 
 class Watcher:
     def __init__(self, tablet: Tablet, model, *, subject=None, settle_s=4.0, restart_quiet_s=1800.0,
                  allow_restart=False, recent_s=600.0, pen=True, log=print, state_file=None,
                  speak=None, speech_allowed=False, pen_rest_s=900.0, restart_gap_s=3600.0,
-                 reader=None, judge_model=None):
+                 reader=None, judge_model=None, teach=True):
         self.tablet, self.model, self.subject = tablet, model, subject
         self.settle_s, self.restart_quiet_s, self.allow_restart = settle_s, restart_quiet_s, allow_restart
         self.recent_s = recent_s
@@ -232,6 +233,7 @@ class Watcher:
         self.verify_tries, self.verify_wait_s = 5, 2.0
         self.speak, self.speech_allowed = speak, speech_allowed
         self.reader, self.judge_model = reader, judge_model
+        self.teach = teach
         self.pen_failures, self.pen_rest_until, self.pen_rest_s = 0, 0.0, pen_rest_s
         self.restart_gap_s, self.last_restart = restart_gap_s, -1e18
         self.state_file = Path(state_file or Path.home() / ".cache/inkpartner/state.json")
@@ -243,7 +245,8 @@ class Watcher:
             data = json.loads(self.state_file.read_text())
             for rel, d in data.items():
                 self.pages[rel] = PageState(tuple(d["stamp"]), 0.0, d["reviewed_sha"], d["own_sha"],
-                                            set(d["delivered"]), own_sigs=set(d.get("own_sigs", [])))
+                                            set(d["delivered"]), own_sigs=set(d.get("own_sigs", [])),
+                                            help_levels=dict(d.get("help_levels", {})))
         except (OSError, ValueError, KeyError):
             pass
 
@@ -251,7 +254,8 @@ class Watcher:
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
         self.state_file.write_text(json.dumps({rel: {"stamp": p.stamp, "reviewed_sha": p.reviewed_sha,
                                                      "own_sha": p.own_sha, "delivered": sorted(p.delivered),
-                                                     "own_sigs": sorted(p.own_sigs)}
+                                                     "own_sigs": sorted(p.own_sigs),
+                                                     "help_levels": p.help_levels}
                                                for rel, p in self.pages.items()}))
 
     # ------------------------------------------------------------------- loop
@@ -298,7 +302,9 @@ class Watcher:
                 strokes = [dict(x, author="agent") if stroke_sig(x) in st.own_sigs else x for x in strokes]
             t0 = time.time()
             r = review.run(strokes, model=self.model, subject=self.subject, delivered=st.delivered,
-                           reader=self.reader, judge_model=self.judge_model)
+                           reader=self.reader, judge_model=self.judge_model,
+                           tutor_model=self.judge_model or self.model if self.teach else None,
+                           help_levels=st.help_levels)
             self.last_round = r
             self.log(f"{self.tablet.name(rel)}: {r.subject}, {len(r.elements)} elements, "
                      f"{len(r.accepted)} marks in {time.time() - t0:.1f}s via {getattr(self.model, 'used', '?')}")
@@ -314,6 +320,12 @@ class Watcher:
                 self.log("  student wrote meanwhile - feedback dropped, next round")
                 st.reviewed_sha = ""
                 return r
+            # spoken help does not wait for the ink: hearing it while the pen rests is the point
+            if self.speak and self.speech_allowed:
+                for k, words in r.speech.items():
+                    if k in r.tutor and words:
+                        self.speak(words)
+                        self.log(f"  spoken (level {r.tutor[k]['level']}): {words[:80]}...")
             result = self.deliver(rel, st, src, data, h, r, now)
             self.log(f"  delivery: {result}")
             self._save()

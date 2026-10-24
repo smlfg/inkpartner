@@ -71,11 +71,15 @@ class Result:
     out: dict = field(default_factory=dict)
     checks: dict = field(default_factory=dict)
     grade: dict = field(default_factory=dict)
+    grades: dict = field(default_factory=dict)
     error: str = ""
 
 
 def run(gens, grader_spec, variants=None, levels=(1, 2, 3), names=None, log=print):
-    grader = models.get(grader_spec)
+    """grader_spec may be a list: every grader rates every answer; `grade` is their mean, `grades`
+    keeps each one, so a lenient grader shows up as disagreement."""
+    specs = grader_spec if isinstance(grader_spec, list) else [grader_spec]
+    graders = [(g, models.get(g)) for g in specs]
     results = []
     for g in gens:
         m = models.get(g)
@@ -91,7 +95,17 @@ def run(gens, grader_spec, variants=None, levels=(1, 2, 3), names=None, log=prin
                                               variant=variant)
                         r.seconds = round(time.time() - t0, 1)
                         r.checks = tutor.score(r.out, level=level, spoilers=case.spoilers)
-                        r.grade = grader.json([], grade_prompt(case, r.out), GRADE_SCHEMA)
+                        r.grades = {}
+                        for gname, gm in graders:
+                            try:
+                                r.grades[gname] = gm.json([], grade_prompt(case, r.out), GRADE_SCHEMA)
+                            except Exception as e:
+                                r.grades[gname] = {"error": str(e)[:200]}
+                        ok = [d for d in r.grades.values() if "error" not in d]
+                        r.grade = {c: sum(max(0, min(2, int(d.get(c, 0)))) for d in ok) / len(ok)
+                                   for c in ("korrekt", "selbst_tun", "verstaendlich")} if ok else {}
+                        r.grade["begruendung"] = " | ".join(f"{k}: {d.get('begruendung', d.get('error', ''))}"
+                                                            for k, d in r.grades.items())
                     except Exception as e:                 # an error is a result
                         r.error = str(e)[:300]
                         r.seconds = round(time.time() - t0, 1)
@@ -117,7 +131,7 @@ def summarize(results):
         d["sprechbar"] += r.checks["sprechbar"]
         d["kein_ergebnis"] += r.checks["kein_ergebnis"]
         for c in ("korrekt", "selbst_tun", "verstaendlich"):
-            d[c] += max(0, min(2, int(r.grade.get(c, 0))))
+            d[c] += max(0.0, min(2.0, float(r.grade.get(c, 0))))
     out = []
     for (g, v), d in rows.items():
         ok = max(1, d["n"] - d["fehler"])
@@ -131,7 +145,11 @@ def summarize(results):
 
 def report(results, path, grader):
     s = summarize(results)
+    agree = [r for r in results if len([d for d in r.grades.values() if "error" not in d]) >= 2]
+    same = sum(all(len({int(d.get(c, 0)) for d in r.grades.values() if "error" not in d}) == 1
+                   for c in ("korrekt", "selbst_tun", "verstaendlich")) for r in agree)
     lines = ["# Runde 5: Hilfe-Prompts im Vergleich", "",
+             f"Bewerter einig (alle drei Punkte gleich): {same} von {len(agree)} Antworten.", "",
              f"Bewerter: `{grader}`. Werte 0..1. Regeln = sprechbar, Länge je Stufe, endet mit Auftrag, "
              "kein Ergebnis auf Stufe 1-2, neue Aufgabe auf Stufe 3, Deutsch.", "",
              "| Modell | Variante | n | Fehler | Regeln | sprechbar | kein Ergebnis | korrekt | selbst tun | verständlich | Sek. |",

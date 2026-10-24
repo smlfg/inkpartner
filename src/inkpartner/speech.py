@@ -21,12 +21,22 @@ def speakable(text: str) -> bool:
     return bool(t) and len(t) <= 200 and not any(p.search(t) for p in _FORBIDDEN)
 
 
+def shlex_quote(t: str) -> str:
+    import shlex
+    return shlex.quote(t)
+
+
 class MacSpeaker:
     """Local voice on the Mac. mode 'play': `say`, but never when the Mac is muted (muted stays
     muted); mode 'file': only writes an audio file per utterance (night runs); 'off': nothing."""
 
-    def __init__(self, mode: str = "play", voice: str = "Anna", folder: str | None = None):
+    PIPER = "~/.local/share/piper/de_DE-thorsten-high.onnx"
+
+    def __init__(self, mode: str = "play", voice: str = "thorsten", folder: str | None = None):
         import os
+        # 'thorsten': local neural voice (Piper) - the macOS voices sounded terrible (Samuel, 24.10.)
+        if voice == "thorsten" and not os.path.exists(os.path.expanduser(self.PIPER)):
+            voice = "Anna"
         self.mode, self.voice = mode, voice
         self.folder = folder or os.path.expanduser("~/.cache/inkpartner/speech")
         self.log: list[tuple[str, str]] = []
@@ -48,13 +58,23 @@ class MacSpeaker:
         if self.mode == "off" or not sentences or not all(speakable(x) for x in sentences):
             self.log.append(("refused", text))
             return
+        os.makedirs(self.folder, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        if self.voice == "thorsten":
+            import shlex
+            wav = os.path.join(self.folder, stamp + ".wav")
+            make = (f"printf %s {shlex.quote(text)} | ~/.local/bin/piper -m {self.PIPER} -f {shlex.quote(wav)}"
+                    " >/dev/null 2>&1")
+            play = f" && afplay {shlex.quote(wav)}"
+        else:
+            wav = os.path.join(self.folder, stamp + ".aiff")
+            make = f"say -v {self.voice} -o {shlex_quote(wav)} {shlex_quote(text)}"
+            play = f" && afplay {shlex_quote(wav)}"
         if self.mode == "file":
-            os.makedirs(self.folder, exist_ok=True)
-            path = os.path.join(self.folder, time.strftime("%Y%m%d-%H%M%S") + ".aiff")
-            subprocess.Popen(["say", "-v", self.voice, "-o", path, text])
-            self.log.append(("file", path))
+            subprocess.Popen(["sh", "-c", make])
+            self.log.append(("file", wav))
         elif self.muted():
             self.log.append(("muted", text))
         else:
-            subprocess.Popen(["say", "-v", self.voice, text])
+            subprocess.Popen(["sh", "-c", make + play])
             self.log.append(("spoken", text))

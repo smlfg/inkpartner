@@ -509,7 +509,13 @@ class Watcher:
             return
         # back on the page: the pen path can deliver now (round 7: feedback for a page the student
         # left before the pen pause was lost when they came back without writing)
-        if self.pen is not None and now >= self.pen_rest_until and self._is_open(rel):
+        # only when something could have changed: new pen strokes (a viewport) since the last try.
+        # Live test 24.10.: retrying every tick used up the pen rate limit (R-RATE) for nothing.
+        mon = getattr(self.tablet, "monitor", None)
+        seen = len(mon.reader.strokes) if mon and hasattr(mon, "reader") else None
+        if (self.pen is not None and now >= self.pen_rest_until and self._is_open(rel)
+                and (seen is None or seen != p.get("pen_seen"))):
+            p["pen_seen"] = seen
             if self._pen_retry(rel, st, p, current):
                 return
         # idle = no change on ANY page; a page the student only reads is quiet but not idle

@@ -146,6 +146,11 @@ class MiniMax:
             r = _post(self.base + "/messages", body, headers, self.timeout)
         except urllib.error.HTTPError as e:
             detail = e.read()[:300].decode("utf-8", "replace")
+            fresh = os.environ.get("MINIMAX_API_KEY", "").strip() or self._agent_token()
+            if e.code == 401 and fresh and fresh != self.key:
+                # the local agent's token lives about an hour (24.10.); a newer one may be on disk
+                self.key = fresh
+                return self.json(images, prompt, schema)
             if e.code == 400 and "thinking" in detail and not self.think:
                 self.think = True                       # this model insists on thinking
                 return self.json(images, prompt, schema)
